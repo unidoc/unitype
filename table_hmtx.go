@@ -5,7 +5,9 @@
 
 package unitype
 
-import "github.com/unidoc/unipdf/v3/common"
+import (
+	"github.com/unidoc/unipdf/v3/common"
+)
 
 type hmtxTable struct {
 	hMetrics         []longHorMetric // length is numberOfHMetrics from hhea table.
@@ -54,6 +56,31 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 	}
 
 	return t, nil
+}
+
+// optimizeHmtx optimizes the htmx table.
+func (f *font) optimizeHmtx() {
+	i := len(f.hmtx.hMetrics) - 1
+	if i <= 0 {
+		return
+	}
+	lastWidth := f.hmtx.hMetrics[i].advanceWidth
+	j := i - 1
+	for j >= 0 && f.hmtx.hMetrics[j].advanceWidth == lastWidth {
+		j--
+	}
+	numStrip := i - j - 1
+	if numStrip == 0 {
+		return
+	}
+
+	f.hhea.numberOfHMetrics = uint16(j + 2)
+	var lsbPrepend []int16
+	for k := j + 2; k <= i; k++ {
+		lsbPrepend = append(lsbPrepend, f.hmtx.hMetrics[k].lsb)
+	}
+	f.hmtx.leftSideBearings = append(lsbPrepend, f.hmtx.leftSideBearings...)
+	f.hmtx.hMetrics = f.hmtx.hMetrics[0 : j+2]
 }
 
 // writeHmtx writes the font's hmtx table  to `w`.

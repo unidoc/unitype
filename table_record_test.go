@@ -19,11 +19,11 @@ import (
 func TestTableRecordsReadWrite(t *testing.T) {
 	testcases := []struct {
 		fontPath string
-		expected []tableRecord
+		expected []*tableRecord
 	}{
 		{
 			"./testdata/FreeSans.ttf",
-			[]tableRecord{
+			[]*tableRecord{
 				{
 					tableTag: makeTag("FFTM"), // FontForge specific table.
 					checksum: 1195616530,

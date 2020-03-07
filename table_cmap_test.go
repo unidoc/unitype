@@ -6,6 +6,7 @@
 package unitype
 
 import (
+	"bytes"
 	"os"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCmapTable(t *testing.T) {
+func TestCmapTableReadWrite(t *testing.T) {
 	type expectedCmap struct {
 		format         int
 		platformID     int
@@ -156,7 +157,8 @@ func TestCmapTable(t *testing.T) {
 
 			require.Equal(t, len(tcase.expectedCmaps), len(fnt.cmap.subtables))
 
-			for key, subtable := range fnt.cmap.subtables {
+			for _, key := range fnt.cmap.subtableKeys {
+				subtable := fnt.cmap.subtables[key]
 				t.Logf("subtable %d %d/%d '%s'", subtable.format, subtable.platformID, subtable.encodingID, key)
 				exp := tcase.expectedCmaps[key]
 				require.Equal(t, exp.format, subtable.format)
@@ -164,6 +166,41 @@ func TestCmapTable(t *testing.T) {
 				require.Equal(t, exp.encodingID, subtable.encodingID)
 				require.Equal(t, exp.numRuneEntries, len(subtable.runes))
 				require.Equal(t, exp.numMapEntries, len(subtable.cmap))
+
+				t.Logf("- cmap len: %d", len(subtable.cmap))
+				// spot checks.
+				for r, gid := range exp.checks {
+					t.Logf("%c 0x%X", r, r)
+					require.Equal(t, gid, subtable.cmap[r])
+				}
+			}
+
+			// Write, read back and repeat checks.
+			var buf bytes.Buffer
+			bw := newByteWriter(&buf)
+			err = fnt.write(bw)
+			require.NoError(t, err)
+			err = bw.flush()
+			require.NoError(t, err)
+			br = newByteReader(bytes.NewReader(buf.Bytes()))
+			fnt, err = parseFont(br)
+			assert.Equal(t, nil, err)
+			require.NoError(t, err)
+			require.NotNil(t, fnt)
+			require.NotNil(t, fnt.cmap)
+			require.NotNil(t, fnt.cmap.subtables)
+			require.Equal(t, len(tcase.expectedCmaps), len(fnt.cmap.subtables))
+			for _, key := range fnt.cmap.subtableKeys {
+				subtable := fnt.cmap.subtables[key]
+				t.Logf("2 subtable %d %d/%d '%s'", subtable.format, subtable.platformID, subtable.encodingID, key)
+				exp := tcase.expectedCmaps[key]
+				require.Equal(t, exp.format, subtable.format)
+				require.Equal(t, exp.platformID, subtable.platformID)
+				require.Equal(t, exp.encodingID, subtable.encodingID)
+				require.Equal(t, exp.numRuneEntries, len(subtable.runes))
+				require.Equal(t, exp.numMapEntries, len(subtable.cmap))
+
+				t.Logf("2 - cmap len: %d", len(subtable.cmap))
 
 				// spot checks.
 				for r, gid := range exp.checks {

@@ -33,15 +33,15 @@ func (tr *tableRecord) write(w *byteWriter) error {
 // tableRecords represents a set of table records in a truetype font file.
 // Includes a map by table name for quick lookup of records.
 type tableRecords struct {
-	list  []tableRecord
-	trMap map[string]tableRecord
+	list  []*tableRecord
+	trMap map[string]*tableRecord
 }
 
 func (r *tableRecords) Set(table string, offset int64, length int, checksum uint32) {
 	if r.trMap == nil {
-		r.trMap = map[string]tableRecord{}
+		r.trMap = map[string]*tableRecord{}
 	}
-	newRec := tableRecord{
+	newRec := &tableRecord{
 		tableTag: makeTag(table),
 		offset:   offset32(offset),
 		length:   uint32(length),
@@ -71,7 +71,7 @@ func (f *font) parseTableRecords(r *byteReader) (*tableRecords, error) {
 	}
 
 	if trs.trMap == nil {
-		trs.trMap = map[string]tableRecord{}
+		trs.trMap = map[string]*tableRecord{}
 	}
 
 	for i := 0; i < numTables; i++ {
@@ -80,8 +80,8 @@ func (f *font) parseTableRecords(r *byteReader) (*tableRecords, error) {
 		if err != nil {
 			return nil, err
 		}
-		trs.list = append(trs.list, rec)
-		trs.trMap[rec.tableTag.String()] = rec
+		trs.list = append(trs.list, &rec)
+		trs.trMap[rec.tableTag.String()] = &rec
 	}
 
 	return trs, nil
@@ -91,7 +91,7 @@ func (f *font) parseTableRecords(r *byteReader) (*tableRecords, error) {
 // The table record is returned back when successful, otherwise is meaningless.
 // The bool flag indicates that the table exists and should be at that position if there
 // was no error.
-func (f *font) seekToTable(r *byteReader, tableName string) (tr tableRecord, has bool, err error) {
+func (f *font) seekToTable(r *byteReader, tableName string) (tr *tableRecord, has bool, err error) {
 	tr, has = f.trec.trMap[tableName]
 	if !has {
 		return tr, false, nil

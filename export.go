@@ -107,6 +107,7 @@ func (f *font) GetCmapByPlatform(platformID int, encodingID int) *cmapTable {
 }
 
 // SubsetSimple creates a simple subset of `f` with only first `numGlyphs`.
+// NOTE: Simple fonts are fonts limited to 0-255 character codes.
 func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 	if int(f.maxp.numGlyphs) <= numGlyphs {
 		// TODO: Should just return the font back and log debug message?
@@ -143,38 +144,50 @@ func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 	if f.font.hmtx != nil {
 		newfnt.hmtx = &hmtxTable{}
 		*newfnt.hmtx = *f.font.hmtx
-		// TODO: what about hMetrics?
-
-		fmt.Printf("hmtx.leftSideBearinggs: %d\n", len(newfnt.hmtx.leftSideBearings))
 
 		if len(newfnt.hmtx.hMetrics) > numGlyphs {
 			newfnt.hmtx.hMetrics = newfnt.hmtx.hMetrics[0:numGlyphs]
+			newfnt.hmtx.leftSideBearings = nil
+		} else {
+			numKeep := numGlyphs - len(newfnt.hmtx.hMetrics)
+			if numKeep > len(newfnt.hmtx.leftSideBearings) {
+				numKeep = len(newfnt.hmtx.leftSideBearings)
+			}
+			newfnt.hmtx.leftSideBearings = newfnt.hmtx.leftSideBearings[0:numKeep]
 		}
-
-		// TODO: Check those calculations
-		exp := len(newfnt.hmtx.hMetrics) - numGlyphs
-		if exp > 0 && len(newfnt.hmtx.leftSideBearings) > exp {
-			newfnt.hmtx.leftSideBearings = newfnt.hmtx.leftSideBearings[0 : exp+1]
-		}
+		newfnt.optimizeHmtx()
 		fmt.Printf("2 hmtx numHmetrics: %d\n", newfnt.hhea.numberOfHMetrics)
 		fmt.Printf("2 hmtx.hMetrics : %d\n", len(newfnt.hmtx.hMetrics))
 		fmt.Printf("2 hmtx.leftSideBearinggs: %d\n", len(newfnt.hmtx.leftSideBearings))
 	}
 
-	if f.font.loca != nil {
+	if f.font.glyf != nil && f.font.loca != nil {
 		newfnt.loca = &locaTable{}
-		*newfnt.loca = *f.font.loca
-		if len(newfnt.loca.offsetsLong) > numGlyphs+1 {
-			newfnt.loca.offsetsLong = newfnt.loca.offsetsLong[0 : numGlyphs+1]
-		}
-		if len(newfnt.loca.offsetsShort) > numGlyphs+1 {
-			newfnt.loca.offsetsShort = newfnt.loca.offsetsShort[0 : numGlyphs+1]
-		}
-	}
-
-	if f.font.glyf != nil {
 		newfnt.glyf = &glyfTable{
 			descs: f.font.glyf.descs[0:numGlyphs],
+		}
+		// Update loca offsets.
+		isShort := f.font.head.indexToLocFormat == 0
+		if isShort {
+			newfnt.loca.offsetsShort = make([]offset16, numGlyphs+1)
+			newfnt.loca.offsetsShort[0] = f.font.loca.offsetsShort[0]
+		} else {
+			newfnt.loca.offsetsLong = make([]offset32, numGlyphs+1)
+			newfnt.loca.offsetsLong[0] = f.font.loca.offsetsLong[0]
+		}
+		for i, desc := range newfnt.glyf.descs {
+			if !desc.IsSimple() {
+				// TODO: Allow glyphs that are within the subset range: Can place the additional glyphs needed at the  end.
+				// Only support simple glyphs here, since otherwise they could refer to outside the exported range.
+				// Remove non-simple glyphs.
+				fmt.Printf("%d - not simple\n", i)
+				desc.raw = nil
+			}
+			if isShort {
+				newfnt.loca.offsetsShort[i+1] = newfnt.loca.offsetsShort[i] + offset16(len(desc.raw))/2
+			} else {
+				newfnt.loca.offsetsLong[i+1] = newfnt.loca.offsetsLong[i] + offset32(len(desc.raw))
+			}
 		}
 	}
 
@@ -214,8 +227,6 @@ func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 
 		for _, name := range f.cmap.subtableKeys {
 			subt := f.cmap.subtables[name]
-
-			fmt.Printf("CMAP subtable %s, %d\n", name, subt.format)
 			switch t := subt.ctx.(type) {
 			case cmapSubtableFormat0:
 				for i := range t.glyphIDArray {
@@ -230,7 +241,8 @@ func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 				// Does not use glyphIDData, but only the deltas.  Can lead to many segments, but should not
 				// be too bad (especially since subsetting).
 				segments := 0
-				for i := 0; i < numGlyphs; i++ {
+				i := 0
+				for i < numGlyphs {
 					j := i + 1
 					for ; j < numGlyphs; j++ {
 						if int(subt.runes[j]-subt.runes[i]) != j-i {
@@ -246,6 +258,7 @@ func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 					newt.idDelta = append(newt.idDelta, idDelta)
 					newt.idRangeOffset = append(newt.idRangeOffset, 0)
 					segments++
+					i = j
 				}
 				newt.length = uint16(2*8 + 2*4*segments)
 				newt.language = t.language

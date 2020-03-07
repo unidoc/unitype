@@ -6,6 +6,9 @@
 package unitype
 
 import (
+	"bytes"
+	"encoding/binary"
+
 	"github.com/unidoc/unipdf/v3/common"
 )
 
@@ -59,7 +62,8 @@ func (f *font) parseGlyf(r *byteReader) (*glyfTable, error) {
 		}
 
 		if gdOffset > int64(tr.length) {
-			common.Log.Debug("Range check error (glyf)")
+			common.Log.Debug("gid: %d, gdOffset: %d, tr len: %d, gd len: %d", gid, gdOffset, tr.length, gdLen)
+			common.Log.Debug("Range check error (glyf): %d > %d", gdOffset, tr.length)
 			return nil, errRangeCheck
 		}
 
@@ -84,6 +88,26 @@ func (f *font) parseGlyf(r *byteReader) (*glyfTable, error) {
 
 type glyphDescription struct {
 	raw []byte
+
+	numContours *int16
+}
+
+func (gd glyphDescription) IsSimple() bool {
+	if gd.numContours != nil {
+		return *gd.numContours > -1
+	}
+	if len(gd.raw) < 2 {
+		return true
+	}
+
+	var numberOfContours int16
+	err := binary.Read(bytes.NewReader(gd.raw), binary.BigEndian, &numberOfContours)
+	if err != nil {
+		return true
+	}
+
+	gd.numContours = &numberOfContours
+	return numberOfContours > -1
 }
 
 func (f *font) writeGlyf(w *byteWriter) error {

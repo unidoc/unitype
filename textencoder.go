@@ -19,6 +19,7 @@ func (f *font) String() string {
 		b.WriteString(fmt.Sprintf("trec: present with %d table records\n", len(f.trec.list)))
 		for _, tr := range f.trec.list {
 			b.WriteString(fmt.Sprintf("%s: %.2f kB\n", tr.tableTag.String(), float64(tr.length)/1024))
+			b.WriteString(fmt.Sprintf("%s: %d B\n", tr.tableTag.String(), tr.length))
 		}
 	}
 	b.WriteString("--\n")
@@ -33,6 +34,23 @@ func (f *font) String() string {
 			len(f.hmtx.hMetrics), len(f.hmtx.leftSideBearings)))
 	} else {
 		b.WriteString("hmtx: missing\n")
+	}
+
+	if f.cmap != nil {
+		b.WriteString(fmt.Sprintf("cmap version: %d\n",
+			f.cmap.version))
+		b.WriteString(fmt.Sprintf("cmap: encoding records: %d subtables: %d\n",
+			len(f.cmap.encodingRecords), len(f.cmap.subtables)))
+		b.WriteString(fmt.Sprintf("cmap: subtables: %+v\n", f.cmap.subtableKeys))
+		for _, k := range f.cmap.subtableKeys {
+			subt := f.cmap.subtables[k]
+			b.WriteString(fmt.Sprintf("cmap subtable: %s: runes: %d\n", k, len(subt.runes)))
+		}
+	}
+	if f.loca != nil {
+		b.WriteString(fmt.Sprintf("Loca table\n"))
+		b.WriteString(fmt.Sprintf("- Short offsets: %d\n", len(f.loca.offsetsShort)))
+		b.WriteString(fmt.Sprintf("- Long offsets: %d\n", len(f.loca.offsetsLong)))
 	}
 
 	if f.glyf != nil {
@@ -59,7 +77,6 @@ func (f *font) String() string {
 		b.WriteString("post: missing\n")
 	}
 
-	//return "truetype font"
 	return b.String()
 }
 

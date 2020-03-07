@@ -39,6 +39,9 @@ import (
 
 // font is a data model for truetype fonts with basic access methods.
 type font struct {
+	strict            bool
+	incompatibilities []string
+
 	ot   *offsetTable
 	trec *tableRecords // table records (references other tables).
 	head *headTable
@@ -51,6 +54,16 @@ type font struct {
 	os2  *os2Table
 	post *postTable
 	cmap *cmapTable
+}
+
+// Returns an error in strict mode, otherwise adds the incompatibility to a list of noted incompatibilities.
+func (f *font) recordIncompatibilityf(fmtstr string, a ...interface{}) error {
+	str := fmt.Sprintf(fmtstr, a...)
+	if f.strict {
+		return fmt.Errorf("incompatibility: %s", str)
+	}
+	f.incompatibilities = append(f.incompatibilities, str)
+	return nil
 }
 
 func (f font) numTables() int {

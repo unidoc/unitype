@@ -97,7 +97,7 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 			continue
 		}
 		if err != nil {
-			fmt.Printf("ERR: %v\n", err)
+			common.Log.Debug("Error: %v", err)
 			return nil, err
 		}
 		if cmap != nil {
@@ -140,6 +140,12 @@ func (f *font) parseCmapSubtableFormat0(r *byteReader, platformID, encodingID in
 	err := r.read(&st.length, &st.language)
 	if err != nil {
 		return nil, err
+	}
+	if st.length != 262 {
+		err := f.recordIncompatibilityf("length != 262 (%d)", st.length)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	err = r.readSlice(&st.glyphIDArray, 256)
@@ -188,7 +194,7 @@ func writeCmapSubtableFormat0(subtable *cmapSubtable, w *byteWriter) error {
 	var (
 		format uint16
 	)
-	subt.length = 3*2 + 256*8
+	subt.length = 3*2 + 256
 	err := w.write(format, subt.length, subt.language)
 	if err != nil {
 		return err
@@ -282,9 +288,8 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 		c1 := st.startCode[i]
 		c2 := st.endCode[i]
 		d := st.idDelta[i]
-		rangeOffset := st.idRangeOffset[i]
-		fmt.Printf("Seg %d: %d-%d -> +%d -> %d-%d %d\n", i, c1, c2, d, uint16(c1+d), uint16(c2+d), rangeOffset)
 
+		rangeOffset := st.idRangeOffset[i]
 		if rangeOffset > 0 {
 			err = r.SeekTo(refOffset + int64(rangeOffset))
 			if err != nil {
@@ -464,7 +469,7 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 	st := cmapSubtableFormat12{}
 	err := r.read(&st.reserved, &st.length, &st.language, &st.numGroups)
 	if err != nil {
-		fmt.Printf("RET ERR: %v\n", err)
+		common.Log.Debug("Error: %v", err)
 		return nil, err
 	}
 
@@ -472,10 +477,9 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 		var group sequentialMapGroup
 		err = r.read(&group.startCharCode, &group.endCharCode, &group.startGlyphID)
 		if err != nil {
-			fmt.Printf("RET ERR: %v\n", err)
+			common.Log.Debug("Error: %v", err)
 			return nil, err
 		}
-		fmt.Printf("XXX READ Group %d: %d:%d:%d\n", i, group.startCharCode, group.endCharCode, group.startGlyphID)
 		st.groups = append(st.groups, group)
 	}
 
@@ -489,7 +493,7 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 		gid := GlyphIndex(group.startGlyphID)
 		if int(gid) >= int(f.maxp.numGlyphs) {
 			common.Log.Debug("gid >= numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
-			fmt.Printf("RET ERR: %v\n", err)
+			common.Log.Debug("Error: %v", errRangeCheck)
 			return nil, errRangeCheck
 		}
 		for charcode := group.startCharCode; charcode <= group.endCharCode; charcode++ {
