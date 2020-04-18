@@ -21,6 +21,9 @@ const subsetCmdDesc = `Subset a font file.
 
 Outputs a new font file "subset.ttf" that contains only
 the first 256 glyphs from the input font file.
+
+TODO: In the future add options to select what glyphs are
+picked, like a set of GID ranges or lists of runes.
 `
 
 var subsetCmdExamples = []string{

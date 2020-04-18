@@ -84,8 +84,6 @@ func (f *Font) Decode(charcodes []byte) (string, error) {
 // GetCmap returns the font's character encoding map (cmap). Used in PDF for decoding.
 // If not found nil is returned.
 // TODO(gunnsth): Document use.
-//    - Should also be able to get the CMap from a font without loading all the other tables.
-//      for faster handling when extracting text.
 func (f *Font) GetCmap(platformID, encodingID int) map[rune]GlyphIndex {
 	if f.cmap == nil {
 		return nil

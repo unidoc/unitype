@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -20,11 +21,16 @@ The input file is loaded from the output argument and the output is
 written to "readwrite.ttf".
 `
 
+var readwriteCmdExamples = []string{
+	fmt.Sprintf("%s readwrite font.ttf", appName),
+}
+
 // readwriteCmd represents the font readwrite command.
 var readwriteCmd = &cobra.Command{
-	Use:   "readwrite <file.ttf>",
-	Short: "Read and write font file",
-	Long:  readwriteCmdDesc,
+	Use:     "readwrite <file.ttf>",
+	Short:   "Read and write font file",
+	Long:    readwriteCmdDesc,
+	Example: strings.Join(readwriteCmdExamples, "\n"),
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			return errors.New("must provide an input font file")

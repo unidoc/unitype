@@ -26,7 +26,7 @@ type cmapTable struct {
 
 	// Processed data:
 	subtables    map[string]*cmapSubtable
-	subtableKeys []string
+	subtableKeys []string // "format,platformID,encodingID".
 }
 
 type encodingRecord struct {
