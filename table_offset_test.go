@@ -9,10 +9,10 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/unidoc/unipdf/v3/common"
 )
 
 // Test unmarshalling and marshalling offset table.
@@ -60,7 +60,7 @@ func TestOffsetTableReadWrite(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, tcase.expected, *fnt.ot)
 
-		common.Log.Debug("Write offset table")
+		logrus.Debug("Write offset table")
 		// Marshall to buffer.
 		var buf bytes.Buffer
 		bw := newByteWriter(&buf)

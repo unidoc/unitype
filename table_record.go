@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/unidoc/unipdf/v3/common"
+	"github.com/sirupsen/logrus"
 )
 
 // tableRecord represents table records, including name (tag) and file offset, size
@@ -66,7 +66,7 @@ func (f *font) parseTableRecords(r *byteReader) (*tableRecords, error) {
 
 	numTables := int(f.ot.numTables)
 	if numTables < 0 {
-		common.Log.Debug("Invalid number of tables")
+		logrus.Debug("Invalid number of tables")
 		return nil, errRangeCheck
 	}
 
@@ -107,7 +107,7 @@ func (f *font) seekToTable(r *byteReader, tableName string) (tr *tableRecord, ha
 
 func (f *font) writeTableRecords(w *byteWriter) error {
 	if f.trec == nil {
-		common.Log.Debug("Table records not set")
+		logrus.Debug("Table records not set")
 		return errRequiredField
 	}
 

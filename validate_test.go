@@ -10,13 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/unidoc/unipdf/v3/common"
+	"github.com/sirupsen/logrus"
 )
-
-func init() {
-	//common.SetLogger(common.NewConsoleLogger(common.LogLevelDebug))
-	//common.SetLogger(common.NewConsoleLogger(common.LogLevelInfo))
-}
 
 func TestFontValidation(t *testing.T) {
 	testcases := []struct {
@@ -36,7 +31,7 @@ func TestFontValidation(t *testing.T) {
 	for _, tcase := range testcases {
 		t.Logf("%s", tcase.fontPath)
 		fmt.Printf("==== %s\n", tcase.fontPath)
-		common.Log.Debug("==== %s", tcase.fontPath)
+		logrus.Debugf("==== %s", tcase.fontPath)
 		start := time.Now()
 		err := ValidateFile(tcase.fontPath)
 		if err != nil {

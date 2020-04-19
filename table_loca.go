@@ -8,7 +8,7 @@ package unitype
 import (
 	"errors"
 
-	"github.com/unidoc/unipdf/v3/common"
+	"github.com/sirupsen/logrus"
 )
 
 // locaTable represents the Index to Location (loca) table.
@@ -23,11 +23,11 @@ type locaTable struct {
 // the beginning of the glyf table.
 func (f *font) GetGlyphDataOffset(gid GlyphIndex) (offset int64, len int64, err error) {
 	if f.loca == nil || f.head == nil {
-		common.Log.Debug("loca or head missing")
+		logrus.Debug("loca or head missing")
 		return 0, 0, errRequiredField
 	}
 	if gid < 0 || int(gid) >= int(f.maxp.numGlyphs) {
-		common.Log.Debug("invalid range")
+		logrus.Debug("invalid range")
 		return 0, 0, errRangeCheck
 	}
 
@@ -45,7 +45,7 @@ func (f *font) GetGlyphDataOffset(gid GlyphIndex) (offset int64, len int64, err 
 
 func (f *font) parseLoca(r *byteReader) (*locaTable, error) {
 	if f.head == nil || f.maxp == nil {
-		common.Log.Debug("head or maxp not set - required missing")
+		logrus.Debug("head or maxp not set - required missing")
 		return nil, errRequiredField
 	}
 
@@ -54,12 +54,12 @@ func (f *font) parseLoca(r *byteReader) (*locaTable, error) {
 		return nil, err
 	}
 	if !has {
-		common.Log.Debug("loca table not present")
+		logrus.Debug("loca table not present")
 		return nil, nil
 	}
 
 	if f.head.indexToLocFormat < 0 || f.head.indexToLocFormat > 1 {
-		common.Log.Debug("Invalid index to loca value")
+		logrus.Debug("Invalid index to loca value")
 		return nil, errRangeCheck
 	}
 
@@ -84,11 +84,11 @@ func (f *font) parseLoca(r *byteReader) (*locaTable, error) {
 		offset := loca.offsetsLong[i]
 		len := loca.offsetsLong[i+1] - loca.offsetsLong[i]
 		if offset < 0 {
-			common.Log.Debug("Invalid offset")
+			logrus.Debug("Invalid offset")
 			return nil, errors.New("invalid indexToLoca offset")
 		}
 		if len < 0 {
-			common.Log.Debug("Invalid length")
+			logrus.Debug("Invalid length")
 			return nil, errors.New("invalid indexToLoca len")
 		}
 
@@ -107,7 +107,7 @@ func (f *font) writeLoca(w *byteWriter) error {
 	t := f.loca
 	if isShort {
 		if numGlyphs+1 != len(t.offsetsShort) {
-			common.Log.Debug("Unexpected length")
+			logrus.Debug("Unexpected length")
 		}
 		return w.writeSlice(t.offsetsShort)
 	}

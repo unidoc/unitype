@@ -9,10 +9,10 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/unidoc/unipdf/v3/common"
 )
 
 // Test unmarshalling and marshalling table records.
@@ -133,7 +133,7 @@ func TestTableRecordsReadWrite(t *testing.T) {
 		}
 		assert.Equal(t, tcase.expected, fnt.trec.list)
 
-		common.Log.Debug("Write table records")
+		logrus.Debug("Write table records")
 		// Marshall to buffer.
 		var buf bytes.Buffer
 		bw := newByteWriter(&buf)

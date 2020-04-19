@@ -5,7 +5,9 @@
 
 package unitype
 
-import "github.com/unidoc/unipdf/v3/common"
+import (
+	"github.com/sirupsen/logrus"
+)
 
 // maxpTable represents the Maximum Profile (maxp) table.
 // This table establishes the memory requirements for the font.
@@ -36,7 +38,7 @@ func (f *font) parseMaxp(r *byteReader) (*maxpTable, error) {
 		return nil, err
 	}
 	if !has {
-		common.Log.Debug("maxp table not present")
+		logrus.Debug("maxp table not present")
 		return nil, nil
 	}
 
@@ -48,7 +50,7 @@ func (f *font) parseMaxp(r *byteReader) (*maxpTable, error) {
 	}
 
 	if t.version < 0x00010000 {
-		common.Log.Debug("Range check error")
+		logrus.Debug("Range check error")
 		return nil, errRangeCheck
 	}
 
@@ -76,7 +78,7 @@ func (f *font) writeMaxp(w *byteWriter) error {
 	}
 
 	if t.version < 0x00010000 {
-		common.Log.Debug("Range check error")
+		logrus.Debug("Range check error")
 		return errRangeCheck
 	}
 

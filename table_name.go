@@ -12,9 +12,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"golang.org/x/text/encoding/charmap"
+	"github.com/sirupsen/logrus"
 
-	"github.com/unidoc/unipdf/v3/common"
+	"golang.org/x/text/encoding/charmap"
 
 	"github.com/gunnsth/unitype/internal/strutils"
 )
@@ -55,7 +55,7 @@ type nameRecord struct {
 // An empty string is returned otherwise (nothing found).
 func (f *font) GetNameByID(nameID int) string {
 	if f == nil || f.name == nil {
-		common.Log.Debug("ERROR: Font or name not set")
+		logrus.Debug("ERROR: Font or name not set")
 		return ""
 	}
 	for _, nr := range f.name.nameRecords {
@@ -158,7 +158,7 @@ func (f *font) parseNameTable(r *byteReader) (*nameTable, error) {
 	fmt.Printf("-- name string offset: %d\n", t.stringOffset)
 
 	if t.format > 1 {
-		common.Log.Debug("ERROR: format > 1 (%d)", t.format)
+		logrus.Debugf("ERROR: format > 1 (%d)", t.format)
 		return nil, errRangeCheck
 	}
 
@@ -193,44 +193,44 @@ func (f *font) parseNameTable(r *byteReader) (*nameTable, error) {
 	for _, nr := range t.nameRecords {
 		if int(t.stringOffset)+int(nr.offset)+int(nr.length) > int(tr.length) {
 			fmt.Printf("%v> %v", int(t.stringOffset)+int(nr.offset)+int(nr.length), int(tr.length))
-			common.Log.Debug("name string offset outside table")
+			logrus.Debug("name string offset outside table")
 			return nil, errRangeCheck
 		}
 
 		err = r.SeekTo(int64(t.stringOffset) + int64(tr.offset) + int64(nr.offset))
 		if err != nil {
-			common.Log.Debug("Error: %v", err)
+			logrus.Debugf("Error: %v", err)
 			return nil, err
 		}
 
 		err = r.readBytes(&nr.data, int(nr.length))
 		if err != nil {
-			common.Log.Debug("Error: %v", err)
+			logrus.Debugf("Error: %v", err)
 			return nil, err
 		}
 	}
 
 	for _, ltr := range t.langTagRecords {
 		if int(t.stringOffset)+int(ltr.offset)+int(ltr.length) > int(tr.length) {
-			common.Log.Debug("lang tag string offset outside table")
+			logrus.Debug("lang tag string offset outside table")
 			return nil, errRangeCheck
 		}
 
 		err = r.SeekTo(int64(t.stringOffset) + int64(tr.offset) + int64(ltr.offset))
 		if err != nil {
-			common.Log.Debug("Error: %v", err)
+			logrus.Debugf("Error: %v", err)
 			return nil, err
 		}
 		err = r.readBytes(&ltr.data, int(ltr.length))
 		if err != nil {
-			common.Log.Debug("Error: %v", err)
+			logrus.Debugf("Error: %v", err)
 			return nil, err
 		}
 	}
 
-	common.Log.Debug("Name records: %d", len(t.nameRecords))
+	logrus.Debugf("Name records: %d", len(t.nameRecords))
 	for _, nr := range t.nameRecords {
-		common.Log.Debug("%d %d %d - '%s' (%d)", nr.platformID, nr.encodingID, nr.nameID, nr.Decoded(), len(nr.data))
+		logrus.Debugf("%d %d %d - '%s' (%d)", nr.platformID, nr.encodingID, nr.nameID, nr.Decoded(), len(nr.data))
 	}
 
 	return t, nil

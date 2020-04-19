@@ -5,7 +5,9 @@
 
 package unitype
 
-import "github.com/unidoc/unipdf/v3/common"
+import (
+	"github.com/sirupsen/logrus"
+)
 
 // os2Table represents the OS/2 metrics table. It consists of metrics and other data that are required.
 type os2Table struct {
@@ -63,7 +65,7 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		return nil, err
 	}
 	if !has {
-		common.Log.Debug("OS/2 table not present")
+		logrus.Debug("OS/2 table not present")
 		return nil, nil
 	}
 
@@ -74,7 +76,7 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 	}
 
 	if t.version > 10 {
-		common.Log.Debug("OS/2 table version range error")
+		logrus.Debug("OS/2 table version range error")
 		return nil, errRangeCheck
 	}
 

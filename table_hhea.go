@@ -5,7 +5,9 @@
 
 package unitype
 
-import "github.com/unidoc/unipdf/v3/common"
+import (
+	"github.com/sirupsen/logrus"
+)
 
 // hheaTable represents the horizontal header table (hhea).
 // This table contains information for horizontal layout.
@@ -33,7 +35,7 @@ func (f *font) parseHhea(r *byteReader) (*hheaTable, error) {
 		return nil, err
 	}
 	if !has {
-		common.Log.Debug("hhea table absent")
+		logrus.Debug("hhea table absent")
 		return nil, nil
 	}
 
@@ -69,7 +71,7 @@ func (f *font) parseHhea(r *byteReader) (*hheaTable, error) {
 
 func (f *font) writeHhea(w *byteWriter) error {
 	if f.hhea == nil {
-		common.Log.Debug("hhea is nil - nothing to write")
+		logrus.Debug("hhea is nil - nothing to write")
 		return nil
 	}
 

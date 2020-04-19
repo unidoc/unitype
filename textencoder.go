@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/unidoc/unipdf/v3/common"
-	"github.com/unidoc/unipdf/v3/core"
+	"github.com/sirupsen/logrus"
 )
 
 // TODO(gunnsth): Make another type: FontEncoder ?  Or simply make *Font implement the interface.
@@ -85,7 +84,7 @@ func (f *font) String() string {
 //      Charcodes are what is stored in the PDF content stream and also in the TTF directly.
 func (f *font) Encode(str string) []byte {
 	if f.cmap == nil {
-		common.Log.Debug("ERROR: No cmap loaded - returning back")
+		logrus.Debug("ERROR: No cmap loaded - returning back")
 		return []byte(str)
 	}
 
@@ -107,16 +106,16 @@ func (f *font) Encode(str string) []byte {
 }
 
 // Decode decodes a `raw` byte array into a string.
-func (f *font) Decode(raw []byte) string {
-	return ""
-}
+//func (f *font) Decode(raw []byte) string {
+//	return ""
+//}
 
 // RuneToCharcode returns the charcode corrsponding to rune `r`.
-func (f *font) RuneToCharcode(r rune) (CharCode, bool) {
-	return 0, false
-}
+//func (f *font) RuneToCharcode(r rune) (CharCode, bool) {
+//	return 0, false
+//}
 
 // ToPdfObject returns a PDF representation of the truetype encoder.
-func (f *font) ToPdfObject() core.PdfObject {
-	return nil
-}
+//func (f *font) ToPdfObject() core.PdfObject {
+//	return nil
+//}

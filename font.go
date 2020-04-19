@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/unidoc/unipdf/v3/common"
+	"github.com/sirupsen/logrus"
 )
 
 // TODO: Export only what unipdf needs:
@@ -188,7 +188,7 @@ func (f *font) write(w *byteWriter) error {
 	//     Or a combined fixed size buffer with partial file system use.
 	//     Best if such implementation is hidden within a well tested package.
 
-	common.Log.Debug("Write 1")
+	logrus.Debug("Write 1")
 	numTables := f.numTablesToWrite()
 	otTable := &offsetTable{
 		sfntVersion:   f.ot.sfntVersion,
@@ -206,7 +206,7 @@ func (f *font) write(w *byteWriter) error {
 
 	fmt.Printf("==== write\nnumTables: %d\nstartOffset: %d\n", numTables, startOffset)
 
-	common.Log.Debug("Write 2")
+	logrus.Debug("Write 2")
 	// Writing is two phases and is done in a few steps:
 	// 1. Write the content tables: head, hhea, etc in the expected order and keep track of the length, checksum for each.
 	// 2. Generate the table records based on the information.
@@ -358,7 +358,7 @@ func (f *font) write(w *byteWriter) error {
 			}
 		}
 	}
-	common.Log.Debug("Write 3")
+	logrus.Debug("Write 3")
 
 	// Write the offset and table records to another mock buffer.
 	var bufh bytes.Buffer

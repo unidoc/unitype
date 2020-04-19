@@ -10,7 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/unidoc/unipdf/v3/common"
+	"github.com/sirupsen/logrus"
 )
 
 // cmapTable represents a Character to Glyph Index Mapping Table (cmap).
@@ -37,7 +37,7 @@ type encodingRecord struct {
 
 func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 	if f.maxp == nil {
-		common.Log.Debug("Unable to load cmap: maxp table is nil")
+		logrus.Debug("Unable to load cmap: maxp table is nil")
 		return nil, errRequiredField
 	}
 
@@ -46,7 +46,7 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 		return nil, err
 	}
 	if !has {
-		common.Log.Debug("cmap table absent")
+		logrus.Debug("cmap table absent")
 		return nil, nil
 	}
 
@@ -93,11 +93,11 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 		case 12:
 			cmap, err = f.parseCmapSubtableFormat12(r, int(enc.platformID), int(enc.encodingID))
 		default:
-			common.Log.Debug("Unsupported cmap format %d", format)
+			logrus.Debugf("Unsupported cmap format %d", format)
 			continue
 		}
 		if err != nil {
-			common.Log.Debug("Error: %v", err)
+			logrus.Debugf("Error: %v", err)
 			return nil, err
 		}
 		if cmap != nil {
@@ -322,7 +322,7 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 				b := runeDecoder.ToBytes(uint32(c))
 				r := runeDecoder.DecodeRune(b)
 				if int(gid) >= int(f.maxp.numGlyphs) {
-					common.Log.Debug("ERROR: gid > numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
+					logrus.Debugf("ERROR: gid > numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
 					return nil, errors.New("gid out of range")
 				}
 				runes[int(gid)] = r
@@ -469,7 +469,7 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 	st := cmapSubtableFormat12{}
 	err := r.read(&st.reserved, &st.length, &st.language, &st.numGroups)
 	if err != nil {
-		common.Log.Debug("Error: %v", err)
+		logrus.Debugf("Error: %v", err)
 		return nil, err
 	}
 
@@ -477,7 +477,7 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 		var group sequentialMapGroup
 		err = r.read(&group.startCharCode, &group.endCharCode, &group.startGlyphID)
 		if err != nil {
-			common.Log.Debug("Error: %v", err)
+			logrus.Debugf("Error: %v", err)
 			return nil, err
 		}
 		st.groups = append(st.groups, group)
@@ -492,8 +492,8 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 		//fmt.Printf("XXX Parse, startCharcode: %d, endCharCode: %d, startGlyphID: %d\n", group.startCharCode, group.endCharCode, group.startGlyphID)
 		gid := GlyphIndex(group.startGlyphID)
 		if int(gid) >= int(f.maxp.numGlyphs) {
-			common.Log.Debug("gid >= numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
-			common.Log.Debug("Error: %v", errRangeCheck)
+			logrus.Debugf("gid >= numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
+			logrus.Debugf("Error: %v", errRangeCheck)
 			return nil, errRangeCheck
 		}
 		for charcode := group.startCharCode; charcode <= group.endCharCode; charcode++ {

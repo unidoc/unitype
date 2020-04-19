@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/unidoc/unipdf/v3/common"
+	"github.com/sirupsen/logrus"
 )
 
 // byteWriter encapsulates io.Writer and provides methods to write binary data as fit for truetype fonts.
@@ -54,9 +54,9 @@ func (w *byteWriter) checksum() uint32 {
 	data := w.buffer.Bytes()
 
 	if len(data) < 60 {
-		common.Log.Debug("Data: % X", data)
+		logrus.Debugf("Data: % X", data)
 	}
-	common.Log.Debug("Data length: %d", len(data))
+	logrus.Debugf("Data length: %d", len(data))
 	sum = 0
 
 	for i := 0; i < len(data); i += 4 {

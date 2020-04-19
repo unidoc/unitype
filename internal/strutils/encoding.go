@@ -10,7 +10,7 @@ import (
 	"bytes"
 	"unicode/utf16"
 
-	"github.com/unidoc/unipdf/v3/common"
+	"github.com/sirupsen/logrus"
 )
 
 var pdfdocEncodingRuneMap map[rune]byte
@@ -29,7 +29,7 @@ func UTF16ToRunes(b []byte) []rune {
 	}
 	if len(b)%2 != 0 {
 		b = append(b, 0)
-		common.Log.Debug("ERROR: UTF16ToRunes. Padding with zeros.")
+		logrus.Debug("ERROR: UTF16ToRunes. Padding with zeros.")
 	}
 	n := len(b) >> 1
 	chars := make([]uint16, n)
@@ -64,7 +64,7 @@ func PDFDocEncodingToRunes(b []byte) []rune {
 	for _, bval := range b {
 		rune, has := pdfDocEncoding[bval]
 		if !has {
-			common.Log.Debug("Error: PDFDocEncoding input mapping error %d - skipping", bval)
+			logrus.Debugf("Error: PDFDocEncoding input mapping error %d - skipping", bval)
 			continue
 		}
 
@@ -85,7 +85,7 @@ func StringToPDFDocEncoding(s string) []byte {
 	for _, r := range s {
 		b, has := pdfdocEncodingRuneMap[r]
 		if !has {
-			common.Log.Debug("ERROR: PDFDocEncoding rune mapping missing %c/%X - skipping", r, r)
+			logrus.Debugf("ERROR: PDFDocEncoding rune mapping missing %c/%X - skipping", r, r)
 			continue
 		}
 		buf.WriteByte(b)
