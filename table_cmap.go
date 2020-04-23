@@ -81,7 +81,7 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 			return nil, err
 		}
 
-		fmt.Printf("Format: %d\n", format)
+		logrus.Debugf("Format: %d", format)
 		var cmap *cmapSubtable
 		switch format {
 		case 0:
@@ -104,7 +104,7 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 			key := fmt.Sprintf("%d,%d,%d", format, enc.platformID, enc.encodingID)
 			t.subtables[key] = cmap
 			t.subtableKeys = append(t.subtableKeys, key)
-			fmt.Printf("KEY: %s <-> %T\n", key, cmap.ctx)
+			logrus.Debugf("KEY: %s <-> %T", key, cmap.ctx)
 		}
 	}
 
@@ -252,19 +252,15 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 		return nil, err
 	}
 
-	refOffset := r.Offset()
 	err = r.readSlice(&st.idRangeOffset, segCount)
 	if err != nil {
 		return nil, err
 	}
 
-	glyphIDArrLen := int(st.length - uint16(2*8+2*4*segCount))
-
-	//refOffset := r.Offset()
-	//fmt.Printf("Table len: %d\n", st.length)
-	//fmt.Printf("Remaining: %d\n", st.length-uint16(2+refOffset-refStart))
-	//fmt.Printf("glyphIDArrLen: %d XXX\n", glyphIDArrLen)
-
+	glyphIDArrLen := int(st.length-uint16(2*8+2*4*segCount)) / 2
+	logrus.Debugf("Parsing cmap format 4, segCount: %d", segCount)
+	logrus.Debugf("Table len: %d", st.length)
+	logrus.Debugf("glyphIDArrLen: %d", glyphIDArrLen)
 	if glyphIDArrLen < 0 {
 		return nil, errors.New("invalid length")
 	}
@@ -276,48 +272,39 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 	encoding := getCmapEncoding(platformID, encodingID)
 	runeDecoder := encoding.GetRuneDecoder()
 
-	// TODO: Read the variable glyphIDArray and work with that rather than seeking back and forth.
-	// TODO: Change the following to use glyphIDarray rather than
-	//   Trick is to account for offset between start of idRangeOffset and current segment.
-	// NOTE: May not be necessary, this seems like a common way to do it.
-
 	cmap := map[rune]GlyphIndex{}
 	runes := make([]rune, int(f.maxp.numGlyphs))
-	fmt.Printf("Number of glyphs in font: %d\n", f.maxp.numGlyphs)
-	for i := 0; i < segCount; i++ {
+	logrus.Debugf("Number of glyphs in font: %d\n", f.maxp.numGlyphs)
+	for i := 0; i < segCount-1; i++ {
 		c1 := st.startCode[i]
 		c2 := st.endCode[i]
 		d := st.idDelta[i]
-
 		rangeOffset := st.idRangeOffset[i]
-		if rangeOffset > 0 {
-			err = r.SeekTo(refOffset + int64(rangeOffset))
-			if err != nil {
-				return nil, err
-			}
-		}
+
+		logrus.Debugf("Segment %d/%d, c1: %d, c2: %d, d: %d, rangeOffset: %d", i+1, segCount, c1, c2, d, rangeOffset)
 
 		for c := c1; c <= c2; c++ {
-			if c == 0xFFFF {
-				break
-			}
-			var gid int32
-			if rangeOffset > 0 {
-				err = r.read(&gid)
-				if err != nil {
-					return nil, err
-				}
-				//gotGid := int32(st.glyphIDArray[rangeOffset/2+c-c1]) // NOTE: Missing offset
+			var gid uint16
 
-				if gid > 0 {
-					gid += int32(d)
-				}
+			if rangeOffset == 0 {
+				gid = (c + d) & 0xFFFF
 			} else {
-				gid = int32(c) + int32(d)
+				index := int(rangeOffset/2 + (c - c1) + uint16(i) - uint16(len(st.idRangeOffset)))
+
+				if index >= len(st.glyphIDArray) {
+					logrus.Debugf("c1=%d c=%d c2=%d", c1, c, c2)
+					logrus.Debugf("ERROR: index outside bounds (%d/%d)", index, len(st.glyphIDArray))
+					return nil, errors.New("outside bounds")
+				}
+				if st.glyphIDArray[index] != 0 {
+					gid = (st.glyphIDArray[index] + d) & 0xFFFF
+				} else {
+					gid = 0
+				}
 			}
-			if gid >= 65536 {
-				gid %= 65536
-			}
+
+			logrus.Tracef("Charcode:GID - %d:%d", c, gid)
+
 			if gid > 0 {
 				b := runeDecoder.ToBytes(uint32(c))
 				r := runeDecoder.DecodeRune(b)
@@ -489,7 +476,6 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 	cmap := map[rune]GlyphIndex{}
 	runes := make([]rune, f.maxp.numGlyphs)
 	for _, group := range st.groups {
-		//fmt.Printf("XXX Parse, startCharcode: %d, endCharCode: %d, startGlyphID: %d\n", group.startCharCode, group.endCharCode, group.startGlyphID)
 		gid := GlyphIndex(group.startGlyphID)
 		if int(gid) >= int(f.maxp.numGlyphs) {
 			logrus.Debugf("gid >= numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
@@ -499,7 +485,6 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 		for charcode := group.startCharCode; charcode <= group.endCharCode; charcode++ {
 			b := runeDecoder.ToBytes(charcode)
 			r := runeDecoder.DecodeRune(b)
-			//fmt.Printf("runes[%d] = x  (len: %d)\n", gid, len(runes))
 			runes[gid] = r
 			if _, has := cmap[r]; !has {
 				// Avoid overwrite, if get same twice, use the earlier entry.
@@ -532,7 +517,7 @@ func writeCmapSubtableFormat12(subtable *cmapSubtable, w *byteWriter) error {
 	}
 
 	for _, group := range subt.groups {
-		fmt.Printf("XXX Write, startCharcode: %d, endCharCode: %d, startGlyphID: %d\n", group.startCharCode, group.endCharCode, group.startGlyphID)
+		logrus.Tracef("XXX Write, startCharcode: %d, endCharCode: %d, startGlyphID: %d", group.startCharCode, group.endCharCode, group.startGlyphID)
 		err = w.write(group.startCharCode, group.endCharCode, group.startGlyphID)
 		if err != nil {
 			return err

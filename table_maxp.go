@@ -59,7 +59,7 @@ func (f *font) parseMaxp(r *byteReader) (*maxpTable, error) {
 		return nil, err
 	}
 
-	err = r.read(&t.maxZones, &t.maxTwilightPoints, &t.maxSizeOfInstructions, &t.maxFunctionDefs, &t.maxInstructionDefs)
+	err = r.read(&t.maxZones, &t.maxTwilightPoints, &t.maxStorage, &t.maxFunctionDefs, &t.maxInstructionDefs)
 	if err != nil {
 		return nil, err
 	}

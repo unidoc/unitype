@@ -116,7 +116,7 @@ func TestCmapTableReadWrite(t *testing.T) {
 					0,
 					3,
 					1294,
-					891,
+					896,
 					map[rune]GlyphIndex{},
 				},
 				"4,3,1": {
@@ -124,7 +124,7 @@ func TestCmapTableReadWrite(t *testing.T) {
 					3,
 					1,
 					1294,
-					891,
+					896,
 					map[rune]GlyphIndex{},
 				},
 				"12,3,10": {

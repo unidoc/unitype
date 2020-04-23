@@ -14,8 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// TODO: Export only what unipdf needs:
-// Encoding: rune <-> GID map.
+// Export what UniPDF needs.
 // font flags:
 //		IsFixedPitch, Serif, etc (Table 123 PDF32000_2008 - font flags)
 //		FixedPitch() bool
@@ -45,11 +44,13 @@ type font struct {
 	ot   *offsetTable
 	trec *tableRecords // table records (references other tables).
 	head *headTable
-	maxp *maxpTable
 	hhea *hheaTable
-	hmtx *hmtxTable
 	loca *locaTable
+	maxp *maxpTable
+	cvt  *cvtTable
+	prep *prepTable
 	glyf *glyfTable
+	hmtx *hmtxTable
 	name *nameTable
 	os2  *os2Table
 	post *postTable
@@ -86,10 +87,6 @@ func parseFont(r *byteReader) (*font, error) {
 		return nil, err
 	}
 
-	// TODO: Avoid parsing tables unless needed?  Like have a f.GetHead that returns the head table if it is
-	//   not already loaded. Guarantees that we only lo
-	// Or at least avoid the biggest tables that have (optional) information - not used by most frequent use cases.
-
 	f.head, err = f.parseHead(r)
 	if err != nil {
 		return nil, err
@@ -120,6 +117,11 @@ func parseFont(r *byteReader) (*font, error) {
 		return nil, err
 	}
 
+	f.prep, err = f.parsePrep(r)
+	if err != nil {
+		return nil, err
+	}
+
 	f.name, err = f.parseNameTable(r)
 	if err != nil {
 		return nil, err
@@ -136,6 +138,11 @@ func parseFont(r *byteReader) (*font, error) {
 	}
 
 	f.cmap, err = f.parseCmap(r)
+	if err != nil {
+		return nil, err
+	}
+
+	f.cvt, err = f.parseCvt(r)
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +174,12 @@ func (f *font) numTablesToWrite() int {
 	if f.glyf != nil {
 		num++
 	}
+	if f.cvt != nil {
+		num++
+	}
+	if f.prep != nil {
+		num++
+	}
 	if f.name != nil {
 		num++
 	}
@@ -183,12 +196,7 @@ func (f *font) numTablesToWrite() int {
 }
 
 func (f *font) write(w *byteWriter) error {
-	// TODO(gunnsth): Can be memory intensive on large fonts, any way to improve?
-	//     Another option to write to temp files and combine.
-	//     Or a combined fixed size buffer with partial file system use.
-	//     Best if such implementation is hidden within a well tested package.
-
-	logrus.Debug("Write 1")
+	logrus.Debug("Writing font")
 	numTables := f.numTablesToWrite()
 	otTable := &offsetTable{
 		sfntVersion:   f.ot.sfntVersion,
@@ -204,9 +212,8 @@ func (f *font) write(w *byteWriter) error {
 	// Starting offset after offset table and table records.
 	startOffset := int64(12 + numTables*16)
 
-	fmt.Printf("==== write\nnumTables: %d\nstartOffset: %d\n", numTables, startOffset)
-
-	logrus.Debug("Write 2")
+	logrus.Tracef("==== write\nnumTables: %d\nstartOffset: %d", numTables, startOffset)
+	logrus.Trace("Write 2")
 	// Writing is two phases and is done in a few steps:
 	// 1. Write the content tables: head, hhea, etc in the expected order and keep track of the length, checksum for each.
 	// 2. Generate the table records based on the information.
@@ -302,6 +309,34 @@ func (f *font) write(w *byteWriter) error {
 			}
 		}
 
+		// prep.
+		if f.prep != nil {
+			offset = startOffset + bufw.flushedLen
+			err = f.writePrep(bufw)
+			if err != nil {
+				return err
+			}
+			trec.Set("prep", offset, bufw.bufferedLen(), bufw.checksum())
+			err = bufw.flush()
+			if err != nil {
+				return err
+			}
+		}
+
+		// cvt.
+		if f.cvt != nil {
+			offset = startOffset + bufw.flushedLen
+			err = f.writeCvt(bufw)
+			if err != nil {
+				return err
+			}
+			trec.Set("cvt", offset, bufw.bufferedLen(), bufw.checksum())
+			err = bufw.flush()
+			if err != nil {
+				return err
+			}
+		}
+
 		// name.
 		if f.name != nil {
 			offset = startOffset + bufw.flushedLen
@@ -358,7 +393,7 @@ func (f *font) write(w *byteWriter) error {
 			}
 		}
 	}
-	logrus.Debug("Write 3")
+	logrus.Trace("Write 3")
 
 	// Write the offset and table records to another mock buffer.
 	var bufh bytes.Buffer
@@ -406,4 +441,116 @@ func (f *font) write(w *byteWriter) error {
 	buffer := bytes.NewBuffer(data)
 	_, err = io.Copy(&w.buffer, buffer)
 	return err
+}
+
+// TableInfo provides readable information regarding a table.
+func (f *font) TableInfo(table string) string {
+	var b bytes.Buffer
+
+	switch table {
+	case "trec":
+		if f.trec == nil {
+			b.WriteString(fmt.Sprintf("trec: missing\n"))
+			break
+		}
+		b.WriteString(fmt.Sprintf("trec: present with %d table records\n", len(f.trec.list)))
+		for _, tr := range f.trec.list {
+			if tr.length > 1024*1024 {
+				b.WriteString(fmt.Sprintf("%s: %.2f MB\n", tr.tableTag.String(), float64(tr.length)/1024/1024))
+			} else if tr.length > 1024 {
+				b.WriteString(fmt.Sprintf("%s: %.2f kB\n", tr.tableTag.String(), float64(tr.length)/1024))
+			} else {
+				b.WriteString(fmt.Sprintf("%s: %d B\n", tr.tableTag.String(), tr.length))
+			}
+		}
+		b.WriteString("--\n")
+	case "head":
+		if f.head == nil {
+			b.WriteString("head: missing\n")
+			break
+		}
+		b.WriteString(fmt.Sprintf("head table: %#v\n", f.head))
+	case "os2":
+		if f.os2 == nil {
+			b.WriteString("os2: missing\n")
+			break
+		}
+		b.WriteString(fmt.Sprintf("os/2 table: %#v\n", f.os2))
+	case "hhea":
+		if f.hhea == nil {
+			b.WriteString("hhea: missing\n")
+			break
+		}
+		b.WriteString(fmt.Sprintf("hhea table: numHMetrics: %d\n", f.hhea.numberOfHMetrics))
+	case "hmtx":
+		if f.hmtx == nil {
+			b.WriteString("hmtx: missing\n")
+			break
+		}
+		b.WriteString(fmt.Sprintf("hmtx: hmetrics: %d, leftSideBearings: %d\n",
+			len(f.hmtx.hMetrics), len(f.hmtx.leftSideBearings)))
+	case "cmap":
+		if f.cmap == nil {
+			b.WriteString("cmap: missing\n")
+			break
+		}
+		b.WriteString(fmt.Sprintf("cmap version: %d\n",
+			f.cmap.version))
+		b.WriteString(fmt.Sprintf("cmap: encoding records: %d subtables: %d\n",
+			len(f.cmap.encodingRecords), len(f.cmap.subtables)))
+		b.WriteString(fmt.Sprintf("cmap: subtables: %+v\n", f.cmap.subtableKeys))
+		for _, k := range f.cmap.subtableKeys {
+			subt := f.cmap.subtables[k]
+			b.WriteString(fmt.Sprintf("cmap subtable: %s: runes: %d\n", k, len(subt.runes)))
+		}
+	case "loca":
+		if f.loca == nil {
+			b.WriteString("loca: missing\n")
+			break
+		}
+		b.WriteString(fmt.Sprintf("Loca table\n"))
+		b.WriteString(fmt.Sprintf("- Short offsets: %d\n", len(f.loca.offsetsShort)))
+		b.WriteString(fmt.Sprintf("- Long offsets: %d\n", len(f.loca.offsetsLong)))
+	case "name":
+		if f.name == nil {
+			b.WriteString("name: missing\n")
+			break
+		}
+		b.WriteString(fmt.Sprintf("name table\n"))
+		b.WriteString(fmt.Sprintf("%#v\n", f.name))
+	case "glyf":
+		if f.glyf == nil {
+			b.WriteString("glyf: missing\n")
+			break
+		}
+		rawTotal := 0.0
+		for _, desc := range f.glyf.descs {
+			rawTotal += float64(len(desc.raw))
+		}
+		b.WriteString(fmt.Sprintf("glyf table present: %d descriptions (%.2f kB)\n", len(f.glyf.descs), rawTotal/1024))
+	case "post":
+		if f.post == nil {
+			b.WriteString("post: missing\n")
+			break
+		}
+		b.WriteString(fmt.Sprintf("post table present: %d numGlyphs\n", f.post.numGlyphs))
+		b.WriteString(fmt.Sprintf("- post glyphNameIndex: %d\n", len(f.post.glyphNameIndex)))
+		b.WriteString(fmt.Sprintf("- post glyphNames: %d\n", len(f.post.glyphNames)))
+		for i, gn := range f.post.glyphNames {
+			if i > 10 {
+				break
+			}
+			b.WriteString(fmt.Sprintf("- post: %d: %s\n", i+1, gn))
+		}
+		b.WriteString(fmt.Sprintf("%#v\n", f.post))
+	default:
+		b.WriteString(fmt.Sprintf("%s: unsupported table for info\n", table))
+	}
+
+	return b.String()
+}
+
+// String outputs some readable information about the font (table record stats).
+func (f *font) String() string {
+	return f.TableInfo("trec")
 }

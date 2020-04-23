@@ -7,7 +7,6 @@ package unitype
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 	"unicode"
 	"unicode/utf8"
@@ -147,15 +146,15 @@ func (f *font) parseNameTable(r *byteReader) (*nameTable, error) {
 	if !has {
 		return nil, nil
 	}
-	fmt.Printf("TR: %+v\n", tr)
+	logrus.Debugf("TR: %+v", tr)
 
 	t := &nameTable{}
 	err = r.read(&t.format, &t.count, &t.stringOffset)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("format/count/stringOffset: %v/%v/%v\n", t.format, t.count, t.stringOffset)
-	fmt.Printf("-- name string offset: %d\n", t.stringOffset)
+	logrus.Debugf("format/count/stringOffset: %v/%v/%v", t.format, t.count, t.stringOffset)
+	logrus.Debugf("-- name string offset: %d", t.stringOffset)
 
 	if t.format > 1 {
 		logrus.Debugf("ERROR: format > 1 (%d)", t.format)
@@ -168,7 +167,7 @@ func (f *font) parseNameTable(r *byteReader) (*nameTable, error) {
 		if err != nil {
 			return nil, err
 		}
-		fmt.Printf("name record %d: %v/%v/%v/%v/%v/%v\n", i, nr.platformID, nr.encodingID, nr.languageID, nr.nameID,
+		logrus.Debugf("name record %d: %v/%v/%v/%v/%v/%v", i, nr.platformID, nr.encodingID, nr.languageID, nr.nameID,
 			nr.length, nr.offset)
 		t.nameRecords = append(t.nameRecords, &nr)
 	}
@@ -184,7 +183,7 @@ func (f *font) parseNameTable(r *byteReader) (*nameTable, error) {
 			if err != nil {
 				return nil, err
 			}
-			fmt.Printf("ltr name record %d: %v/%v\n", i, ltr.offset, ltr.length)
+			logrus.Debugf("ltr name record %d: %v/%v", i, ltr.offset, ltr.length)
 			t.langTagRecords = append(t.langTagRecords, &ltr)
 		}
 	}
@@ -192,7 +191,7 @@ func (f *font) parseNameTable(r *byteReader) (*nameTable, error) {
 	// Get the actual string data.
 	for _, nr := range t.nameRecords {
 		if int(t.stringOffset)+int(nr.offset)+int(nr.length) > int(tr.length) {
-			fmt.Printf("%v> %v", int(t.stringOffset)+int(nr.offset)+int(nr.length), int(tr.length))
+			logrus.Debugf("%v> %v", int(t.stringOffset)+int(nr.offset)+int(nr.length), int(tr.length))
 			logrus.Debug("name string offset outside table")
 			return nil, errRangeCheck
 		}
@@ -238,7 +237,7 @@ func (f *font) parseNameTable(r *byteReader) (*nameTable, error) {
 
 func (f *font) writeNameTable(w *byteWriter) error {
 	if f.name == nil {
-		fmt.Printf("name is nil\n")
+		logrus.Debug("name is nil")
 		return nil
 	}
 	t := f.name
@@ -268,7 +267,7 @@ func (f *font) writeNameTable(w *byteWriter) error {
 			return err
 		}
 	}
-	fmt.Printf("Buffer length: %d\n", buf.Len())
+	logrus.Debugf("Buffer length: %d", buf.Len())
 
 	// Update count and stringOffsets (calculated).
 	t.count = uint16(len(t.nameRecords))
@@ -280,7 +279,7 @@ func (f *font) writeNameTable(w *byteWriter) error {
 		t.stringOffset += 2 + offset16(t.langTagCount)*4
 	}
 
-	fmt.Printf("w @ %d\n", w.bufferedLen())
+	logrus.Debugf("w @ %d", w.bufferedLen())
 	err := w.write(t.format, t.count, t.stringOffset)
 	if err != nil {
 		return err
@@ -292,7 +291,7 @@ func (f *font) writeNameTable(w *byteWriter) error {
 			return err
 		}
 	}
-	fmt.Printf("w @ %d\n", w.bufferedLen())
+	logrus.Debugf("w @ %d", w.bufferedLen())
 
 	if t.format == 1 {
 		err = w.write(t.langTagCount)
@@ -307,13 +306,13 @@ func (f *font) writeNameTable(w *byteWriter) error {
 		}
 	}
 
-	fmt.Printf("w @ %d\n", w.bufferedLen())
+	logrus.Debugf("w @ %d", w.bufferedLen())
 	// Write the buffered data.
 	err = w.writeBytes(buf.Bytes())
 	if err != nil {
 		return err
 	}
-	fmt.Printf("w @ %d\n", w.bufferedLen())
+	logrus.Debugf("w @ %d", w.bufferedLen())
 
 	return nil
 }

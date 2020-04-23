@@ -37,9 +37,9 @@ type tableRecords struct {
 	trMap map[string]*tableRecord
 }
 
-func (r *tableRecords) Set(table string, offset int64, length int, checksum uint32) {
-	if r.trMap == nil {
-		r.trMap = map[string]*tableRecord{}
+func (trs *tableRecords) Set(table string, offset int64, length int, checksum uint32) {
+	if trs.trMap == nil {
+		trs.trMap = map[string]*tableRecord{}
 	}
 	newRec := &tableRecord{
 		tableTag: makeTag(table),
@@ -49,16 +49,16 @@ func (r *tableRecords) Set(table string, offset int64, length int, checksum uint
 	}
 
 	found := false
-	for i := range r.list {
-		if r.list[i].tableTag.String() == table {
-			r.list[i] = newRec
+	for i := range trs.list {
+		if trs.list[i].tableTag.String() == table {
+			trs.list[i] = newRec
 			found = true
 		}
 	}
 	if !found {
-		r.list = append(r.list, newRec)
+		trs.list = append(trs.list, newRec)
 	}
-	r.trMap[table] = newRec
+	trs.trMap[table] = newRec
 }
 
 func (f *font) parseTableRecords(r *byteReader) (*tableRecords, error) {
@@ -111,9 +111,9 @@ func (f *font) writeTableRecords(w *byteWriter) error {
 		return errRequiredField
 	}
 
-	fmt.Printf("Writing (len:%d):\n", len(f.trec.list))
+	logrus.Debugf("Writing (len:%d):", len(f.trec.list))
 	for _, tr := range f.trec.list {
-		fmt.Printf("%s - off: %d (len: %d)\n", tr.tableTag.String(), tr.offset, tr.length)
+		logrus.Debugf("%s - off: %d (len: %d)", tr.tableTag.String(), tr.offset, tr.length)
 		err := tr.write(w)
 		if err != nil {
 			return err

@@ -8,7 +8,6 @@ package unitype
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 
 	"github.com/sirupsen/logrus"
@@ -137,7 +136,7 @@ func (w *byteWriter) writeSlice(slice interface{}) error {
 		}
 
 	default:
-		fmt.Printf("Write type check error: %T (slice)\n", t)
+		logrus.Errorf("Write type check error: %T (slice)", t)
 		return errTypeCheck
 	}
 	return nil
@@ -204,7 +203,7 @@ func (w *byteWriter) write(fields ...interface{}) error {
 			}
 
 		default:
-			fmt.Printf("Write type check error: %T\n", t)
+			logrus.Errorf("Write type check error: %T", t)
 			return errTypeCheck
 		}
 	}

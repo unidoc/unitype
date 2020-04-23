@@ -12,6 +12,8 @@ import (
 	"io"
 	"math"
 	"os"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Font wraps font for outside access.
@@ -75,15 +77,8 @@ func ValidateFile(filePath string) error {
 	return fnt.validate(br)
 }
 
-// Decode decodes charcodes in raw byte data to runes (string/UTF-8).
-// TODO(gunnsth): Implement. Document the use case.
-func (f *Font) Decode(charcodes []byte) (string, error) {
-	return "", errors.New("not implemented")
-}
-
-// GetCmap returns the font's character encoding map (cmap). Used in PDF for decoding.
-// If not found nil is returned.
-// TODO(gunnsth): Document use.
+// GetCmap returns the specific cmap specified by `platformID` and platform-specific `encodingID`.
+// If not available, nil is returned. Used in PDF for decoding.
 func (f *Font) GetCmap(platformID, encodingID int) map[rune]GlyphIndex {
 	if f.cmap == nil {
 		return nil
@@ -98,10 +93,143 @@ func (f *Font) GetCmap(platformID, encodingID int) map[rune]GlyphIndex {
 	return nil
 }
 
-// GetCMapByPlatform returns the specific cmap specified by `platformID` and platform-specific `encodingID`.
-// If not available, nil is returned.
-func (f *font) GetCmapByPlatform(platformID int, encodingID int) *cmapTable {
-	return nil
+// SubsetKeepRunes prunes data for all GIDs except the ones corresponding to `runes`.  The GIDs are
+// maintained. Typically reduces glyf table size significantly.
+func (f *Font) SubsetKeepRunes(runes []rune) (*Font, error) {
+	var maps []map[rune]GlyphIndex
+	// Search order (3,1), (1,0), (0,3).
+	maps = append(maps, f.GetCmap(3, 1), f.GetCmap(1, 0), f.GetCmap(0, 3))
+
+	var indices []GlyphIndex
+	for _, r := range runes {
+		index := GlyphIndex(0)
+		for _, cmap := range maps {
+			ind, has := cmap[r]
+			if has {
+				index = ind
+				break
+			}
+		}
+		if index == 0 {
+			return nil, fmt.Errorf("rune not found: %v", r)
+		}
+		indices = append(indices, index)
+	}
+	logrus.Debugf("Runes: %+v %s", runes, string(runes))
+	logrus.Debugf("GIDs: %+v", indices)
+	return f.SubsetKeepIndices(indices)
+}
+
+// SubsetKeepIndices prunes data for all GIDs outside of `indices`. The GIDs are maintained.
+// This typically works well and is a simple way to prune most of the unnecessary data as the
+// glyf table is usually the biggest by far.
+func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
+	newfnt := font{}
+
+	gidIncludedMap := make(map[GlyphIndex]struct{}, len(indices))
+	for _, gid := range indices {
+		gidIncludedMap[gid] = struct{}{}
+	}
+
+	newfnt.ot = &offsetTable{}
+	*newfnt.ot = *f.font.ot
+
+	newfnt.trec = &tableRecords{}
+	*newfnt.trec = *f.font.trec
+
+	if f.font.head != nil {
+		newfnt.head = &headTable{}
+		*newfnt.head = *f.font.head
+	}
+
+	if f.font.maxp != nil {
+		newfnt.maxp = &maxpTable{}
+		*newfnt.maxp = *f.font.maxp
+	}
+
+	if f.font.hhea != nil {
+		newfnt.hhea = &hheaTable{}
+		*newfnt.hhea = *f.font.hhea
+	}
+
+	if f.font.hmtx != nil {
+		newfnt.hmtx = &hmtxTable{}
+		*newfnt.hmtx = *f.font.hmtx
+		newfnt.optimizeHmtx()
+	}
+
+	if f.font.glyf != nil && f.font.loca != nil {
+		newfnt.loca = &locaTable{}
+		newfnt.glyf = &glyfTable{}
+		*newfnt.glyf = *f.font.glyf
+
+		// Empty glyf contents for non-included glyphs.
+		for i := range newfnt.glyf.descs {
+			if _, has := gidIncludedMap[GlyphIndex(i)]; has {
+				continue
+			}
+
+			if newfnt.glyf.descs[i].IsSimple() {
+				newfnt.glyf.descs[i].raw = nil
+			} else {
+				// TODO: For composite glyphs, need to know which ones are used together.
+				//   If one gid relies on another on that is not included, need to include it.
+				//   - Start by crawling through all the glyph descriptions and for any composite
+				//     glyph in use, mark others that are required.
+			}
+		}
+
+		// Update loca offsets.
+		isShort := f.font.head.indexToLocFormat == 0
+		if isShort {
+			newfnt.loca.offsetsShort = make([]offset16, len(newfnt.glyf.descs)+1)
+			newfnt.loca.offsetsShort[0] = f.font.loca.offsetsShort[0]
+		} else {
+			newfnt.loca.offsetsLong = make([]offset32, len(newfnt.glyf.descs)+1)
+			newfnt.loca.offsetsLong[0] = f.font.loca.offsetsLong[0]
+		}
+		for i, desc := range newfnt.glyf.descs {
+			if isShort {
+				newfnt.loca.offsetsShort[i+1] = newfnt.loca.offsetsShort[i] + offset16(len(desc.raw))/2
+			} else {
+				newfnt.loca.offsetsLong[i+1] = newfnt.loca.offsetsLong[i] + offset32(len(desc.raw))
+			}
+		}
+	}
+
+	if f.font.prep != nil {
+		newfnt.prep = &prepTable{}
+		*newfnt.prep = *f.font.prep
+	}
+
+	if f.font.cvt != nil {
+		newfnt.cvt = &cvtTable{}
+		*newfnt.cvt = *f.font.cvt
+	}
+
+	if f.font.name != nil {
+		newfnt.name = &nameTable{}
+		*newfnt.name = *f.font.name
+	}
+
+	if f.font.os2 != nil {
+		newfnt.os2 = &os2Table{}
+		*newfnt.os2 = *f.font.os2
+	}
+	if f.font.post != nil {
+		newfnt.post = &postTable{}
+		*newfnt.post = *f.font.post
+	}
+	if f.font.cmap != nil {
+		newfnt.cmap = &cmapTable{}
+		*newfnt.cmap = *f.font.cmap
+	}
+
+	subfnt := &Font{
+		br:   nil,
+		font: &newfnt,
+	}
+	return subfnt, nil
 }
 
 // SubsetSimple creates a simple subset of `f` with only first `numGlyphs`.
@@ -154,9 +282,6 @@ func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 			newfnt.hmtx.leftSideBearings = newfnt.hmtx.leftSideBearings[0:numKeep]
 		}
 		newfnt.optimizeHmtx()
-		fmt.Printf("2 hmtx numHmetrics: %d\n", newfnt.hhea.numberOfHMetrics)
-		fmt.Printf("2 hmtx.hMetrics : %d\n", len(newfnt.hmtx.hMetrics))
-		fmt.Printf("2 hmtx.leftSideBearinggs: %d\n", len(newfnt.hmtx.leftSideBearings))
 	}
 
 	if f.font.glyf != nil && f.font.loca != nil {
@@ -178,7 +303,6 @@ func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 				// TODO: Allow glyphs that are within the subset range: Can place the additional glyphs needed at the  end.
 				// Only support simple glyphs here, since otherwise they could refer to outside the exported range.
 				// Remove non-simple glyphs.
-				fmt.Printf("%d - not simple\n", i)
 				desc.raw = nil
 			}
 			if isShort {
@@ -314,23 +438,15 @@ func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 	return subfnt, nil
 }
 
-// Subset creates a subset of `f` including only glyphs with `runes`.
-// If `cmap` is nil, the cmap will be loaded from the font.
-// Returns the subsetted font, a map of rune to GlyphIndex in the new font.
-//func (f *Font) Subset(runes []rune, cmap map[rune]GlyphIndex) (*Font, map[rune]GlyphIndex, error) {
 // Subset creates a subset of `f` including only glyph indices specified by `indices`.
-func (f *Font) Subset(indices []GlyphIndex) (*Font, map[rune]GlyphIndex, error) {
-
-	newfnt := font{}
-
-	//newfnt.ot = f.fnt.ot.copy() // make a copy of ot.
-	_ = newfnt
-
+// Returns the new subsetted font, a map of old to new GlyphIndex to GlyphIndex as the removal
+// of glyphs requires reordering.
+func (f *Font) Subset(indices []GlyphIndex) (newf *Font, oldnew map[GlyphIndex]GlyphIndex, err error) {
 	// TODO:
 	//     1. Make the new cmap for `runes` if `cmap` is nil, using the cmap table and make a []GlyphIndex
 	//        with the glyph indices to keep (index prior to subsetting).
 	//     2. Go through each table and leave only data for the glyph indices to be kept.
-	return nil, nil, nil
+	return nil, nil, errors.New("not implemented yet")
 }
 
 // Write writes the font to `w`.

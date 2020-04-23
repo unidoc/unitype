@@ -8,8 +8,9 @@ package unitype
 import (
 	"bufio"
 	"encoding/binary"
-	"fmt"
 	"io"
+
+	"github.com/sirupsen/logrus"
 )
 
 // byteReader encapsulates io.ReadSeeker with buffering and provides methods to read binary data as
@@ -106,7 +107,7 @@ func (r *byteReader) readSlice(slice interface{}, length int) error {
 		}
 
 	default:
-		fmt.Printf("Unsupported type: %T (readSlice)\n", t)
+		logrus.Errorf("Unsupported type: %T (readSlice)", t)
 		return errTypeCheck
 	}
 	return nil
@@ -202,7 +203,7 @@ func (r byteReader) read(fields ...interface{}) error {
 			*t = val
 
 		default:
-			fmt.Printf("Unsupported type: %T (read)\n", t)
+			logrus.Errorf("Unsupported type: %T (read)", t)
 			return errTypeCheck
 		}
 	}
