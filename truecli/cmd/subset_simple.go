@@ -14,7 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gunnsth/unitype"
+	"github.com/unidoc/unitype"
 )
 
 const subsetSimpleCmdDesc = `Subset a font file to a simple subset (256 glyphs).

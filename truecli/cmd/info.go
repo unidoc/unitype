@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gunnsth/unitype"
+	"github.com/unidoc/unitype"
 )
 
 const infoCmdDesc = `Information from font file.`

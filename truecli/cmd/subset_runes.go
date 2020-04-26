@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gunnsth/unitype"
+	"github.com/unidoc/unitype"
 )
 
 const subsetRunesCmdDesc = `Subset a font file to a set of runes.

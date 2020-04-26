@@ -14,7 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/gunnsth/unitype"
+	"github.com/unidoc/unitype"
 )
 
 const subsetGIDsCmdDesc = `Subset a font file to a set of GIDs.
