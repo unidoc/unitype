@@ -475,8 +475,8 @@ func (f *Font) Subset(indices []GlyphIndex) (newf *Font, oldnew map[GlyphIndex]G
 	return nil, nil, errors.New("not implemented yet")
 }
 
-// PruneTable prunes font tables `tables` by name from font.
-// Supports: "cmap", "post", "name".
+// PruneTables prunes font tables `tables` by name from font.
+// Currently supports: "cmap", "post", "name".
 func (f *Font) PruneTables(tables ...string) error {
 	for _, table := range tables {
 		switch table {

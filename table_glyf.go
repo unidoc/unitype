@@ -236,6 +236,7 @@ const (
 	unscaledComponentOffset
 )
 
+// IsSet checks if bit `flag` is set in `f`.
 func (f compositeGlyphFlag) IsSet(flag compositeGlyphFlag) bool {
 	return f&flag != 0
 }
