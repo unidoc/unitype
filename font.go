@@ -48,6 +48,7 @@ type font struct {
 	loca *locaTable
 	maxp *maxpTable
 	cvt  *cvtTable
+	fpgm *fpgmTable
 	prep *prepTable
 	glyf *glyfTable
 	hmtx *hmtxTable
@@ -147,6 +148,11 @@ func parseFont(r *byteReader) (*font, error) {
 		return nil, err
 	}
 
+	f.fpgm, err = f.parseFpgm(r)
+	if err != nil {
+		return nil, err
+	}
+
 	return f, nil
 }
 
@@ -175,6 +181,9 @@ func (f *font) numTablesToWrite() int {
 		num++
 	}
 	if f.cvt != nil {
+		num++
+	}
+	if f.fpgm != nil {
 		num++
 	}
 	if f.prep != nil {
@@ -331,6 +340,20 @@ func (f *font) write(w *byteWriter) error {
 				return err
 			}
 			trec.Set("cvt", offset, bufw.bufferedLen(), bufw.checksum())
+			err = bufw.flush()
+			if err != nil {
+				return err
+			}
+		}
+
+		// fpgm.
+		if f.fpgm != nil {
+			offset = startOffset + bufw.flushedLen
+			err = f.writeFpgm(bufw)
+			if err != nil {
+				return err
+			}
+			trec.Set("fpgm", offset, bufw.bufferedLen(), bufw.checksum())
 			err = bufw.flush()
 			if err != nil {
 				return err

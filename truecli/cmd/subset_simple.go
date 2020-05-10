@@ -67,7 +67,7 @@ var subsetSimpleCmd = &cobra.Command{
 		}
 
 		// Try subsetting font.
-		subfnt, err := tfnt.SubsetSimple(256)
+		subfnt, err := tfnt.SubsetFirst(256)
 		if err != nil {
 			panic(err)
 		}
