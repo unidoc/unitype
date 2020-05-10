@@ -7,7 +7,7 @@ package unitype
 
 import (
 	"bytes"
-	"encoding/binary"
+	"errors"
 
 	"github.com/sirupsen/logrus"
 )
@@ -28,8 +28,6 @@ import (
 // NOTE: This table is usually the biggest by far, so avoid processing it unless necessary.
 type glyfTable struct {
 	descs []*glyphDescription
-	// TODO: Change so we actually don't parse this information unless we want to?
-	//       The loca table describes this.
 }
 
 func (f *font) parseGlyf(r *byteReader) (*glyfTable, error) {
@@ -89,25 +87,202 @@ func (f *font) parseGlyf(r *byteReader) (*glyfTable, error) {
 type glyphDescription struct {
 	raw []byte
 
-	numContours *int16
+	header    *glyphHeader
+	composite *compositeGlyph
+}
+
+type glyphHeader struct {
+	numberOfContours int16
+	xMin             int16
+	yMin             int16
+	xMax             int16
+	yMax             int16
+}
+
+// parse deserializes the glyph description data.
+func (gd *glyphDescription) parse() error {
+	if gd.header != nil {
+		// Already loaded.
+		return nil
+	}
+
+	r := newByteReader(bytes.NewReader(gd.raw))
+	err := gd.parseHeader(r)
+	if err != nil {
+		return err
+	}
+
+	if gd.IsSimple() {
+		// TODO: Currently not loading the simple glyph description.
+		//  Example code can be found lower in this file (commented out).
+		return nil
+	}
+
+	return gd.parseComposite(r)
+}
+
+func (gd *glyphDescription) parseHeader(r *byteReader) error {
+	var h glyphHeader
+	err := r.read(&h.numberOfContours, &h.xMin, &h.yMin, &h.xMax, &h.yMax)
+	if err != nil {
+		return err
+	}
+	gd.header = &h
+	return nil
+}
+
+func (gd *glyphDescription) parseComposite(r *byteReader) error {
+	var composite compositeGlyph
+
+	instructionsFollow := false
+	for {
+		var comp compositeComponent
+		err := r.read(&comp.flags, &comp.glyphIndex)
+		if err != nil {
+			return err
+		}
+
+		flag := compositeGlyphFlag(comp.flags)
+		if flag.IsSet(arg1And2AreWords) {
+			err := r.read(&comp.argument1, &comp.argument2)
+			if err != nil {
+				return err
+			}
+		} else {
+			var arg1, arg2 uint8
+			err := r.read(&arg1, &arg2)
+			if err != nil {
+				return err
+			}
+			comp.argument1, comp.argument2 = uint16(arg1), uint16(arg2)
+		}
+
+		if flag.IsSet(weHaveAScale) {
+			err := r.read(&comp.scale)
+			if err != nil {
+				return err
+			}
+		} else if flag.IsSet(weHaveAnXAndYScale) {
+			err := r.read(&comp.scaleX, &comp.scaleY)
+			if err != nil {
+				return err
+			}
+		} else if flag.IsSet(weHaveATwoByTwo) {
+			err := r.read(&comp.a, &comp.b, &comp.c, &comp.d)
+			if err != nil {
+				return err
+			}
+		}
+
+		if !instructionsFollow && flag.IsSet(weHaveInstructions) {
+			instructionsFollow = true
+		}
+
+		composite.components = append(composite.components, comp)
+		if !flag.IsSet(moreComponents) {
+			break
+		}
+	}
+
+	if instructionsFollow {
+		instructionLen := int64(len(gd.raw)) - r.Offset()
+		if instructionLen <= 0 {
+			logrus.Debug("Read more than length in loca table showed")
+			return errors.New("no room for instructions")
+		}
+		err := r.readSlice(&composite.instructions, int(instructionLen))
+		if err != nil {
+			logrus.Debug("Failed to read instructions")
+			return err
+		}
+	}
+
+	gd.composite = &composite
+	return nil
+}
+
+type compositeGlyph struct {
+	components   []compositeComponent
+	instructions []uint8
+}
+
+type compositeComponent struct {
+	flags      uint16
+	glyphIndex uint16
+	argument1  uint16 // uint8, int8, uint16 or int16.
+	argument2  uint16 // uint8, int8, uint16 or int16.
+
+	// Optional transformation flags.
+	scale          *f2dot14 // same scale for x and y.
+	scaleX, scaleY *f2dot14 // x and y scales
+	a, b, c, d     *f2dot14 // 2x2
+}
+
+type compositeGlyphFlag uint16
+
+const (
+	arg1And2AreWords compositeGlyphFlag = (1 << iota) // If set, the args are 16-bit (uint16/int16), otherwise uint8/int8.
+	argsAreXYValues                                   // If set, the args are signed xy values (otherwise unsigned).
+	roundXYToGrid
+	weHaveAScale
+	_              // reserved
+	moreComponents // Indicates at least one glyph following this one.
+	weHaveAnXAndYScale
+	weHaveATwoByTwo
+	weHaveInstructions
+	useMyMetrics
+	overlapCompound
+	scaledComponentOffset
+	unscaledComponentOffset
+)
+
+func (f compositeGlyphFlag) IsSet(flag compositeGlyphFlag) bool {
+	return f&flag != 0
+}
+
+// Returns list of glyphs that `gid` depends on (other than itself).
+func (glyf *glyfTable) GetComponents(gid GlyphIndex) ([]GlyphIndex, error) {
+	if int(gid) >= len(glyf.descs) {
+		logrus.Debugf("GID not accessible (%d > %d)", gid, len(glyf.descs))
+		return nil, nil
+	}
+
+	var components []GlyphIndex
+	gdesc := glyf.descs[int(gid)]
+
+	if gdesc.header == nil {
+		err := gdesc.parse()
+		if err != nil {
+			logrus.Debugf("ERROR parsing header: %v", err)
+			return nil, err
+		}
+	}
+
+	if gdesc.IsSimple() {
+		return components, nil
+	}
+	if gdesc.composite == nil {
+		logrus.Debugf("composite is nil")
+		return components, nil
+	}
+
+	for _, comp := range gdesc.composite.components {
+		components = append(components, GlyphIndex(comp.glyphIndex))
+	}
+
+	return components, nil
 }
 
 func (gd glyphDescription) IsSimple() bool {
-	if gd.numContours != nil {
-		return *gd.numContours > -1
-	}
-	if len(gd.raw) < 2 {
-		return true
-	}
-
-	var numberOfContours int16
-	err := binary.Read(bytes.NewReader(gd.raw), binary.BigEndian, &numberOfContours)
-	if err != nil {
-		return true
+	if gd.header == nil {
+		err := gd.parse()
+		if err != nil {
+			logrus.Debugf("ERROR parsing header: %v", err)
+			return true
+		}
 	}
 
-	gd.numContours = &numberOfContours
-	return numberOfContours > -1
+	return gd.header.numberOfContours > -1
 }
 
 func (f *font) writeGlyf(w *byteWriter) error {

@@ -131,6 +131,31 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 		gidIncludedMap[gid] = struct{}{}
 	}
 
+	toscan := make([]GlyphIndex, 0, len(gidIncludedMap))
+	for gid := range gidIncludedMap {
+		toscan = append(toscan, gid)
+	}
+
+	// Find dependencies of core sets of glyph, and expand until have all relations.
+	i := 0
+	for len(toscan) > 0 {
+		var newgids []GlyphIndex
+		for _, gid := range toscan {
+			components, err := f.glyf.GetComponents(gid)
+			if err != nil {
+				return nil, err
+			}
+			for _, gid := range components {
+				if _, has := gidIncludedMap[gid]; !has {
+					gidIncludedMap[gid] = struct{}{}
+					newgids = append(newgids, gid)
+				}
+			}
+		}
+		toscan = newgids
+		i++
+	}
+
 	newfnt.ot = &offsetTable{}
 	*newfnt.ot = *f.font.ot
 
@@ -169,14 +194,7 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 				continue
 			}
 
-			if newfnt.glyf.descs[i].IsSimple() {
-				newfnt.glyf.descs[i].raw = nil
-			} else {
-				// TODO: For composite glyphs, need to know which ones are used together.
-				//   If one gid relies on another on that is not included, need to include it.
-				//   - Start by crawling through all the glyph descriptions and for any composite
-				//     glyph in use, mark others that are required.
-			}
+			newfnt.glyf.descs[i].raw = nil
 		}
 
 		// Update loca offsets.
@@ -207,6 +225,11 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 		*newfnt.cvt = *f.font.cvt
 	}
 
+	if f.font.fpgm != nil {
+		newfnt.fpgm = &fpgmTable{}
+		*newfnt.fpgm = *f.font.fpgm
+	}
+
 	if f.font.name != nil {
 		newfnt.name = &nameTable{}
 		*newfnt.name = *f.font.name
@@ -229,16 +252,25 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 		br:   nil,
 		font: &newfnt,
 	}
-	return subfnt, nil
+
+	// Trim down to the first fonts.
+	var maxgid GlyphIndex
+	for gid := range gidIncludedMap {
+		if gid > maxgid {
+			maxgid = gid
+		}
+	}
+	maxNeededNum := int(maxgid) + 1
+	return subfnt.SubsetFirst(maxNeededNum)
 }
 
-// SubsetSimple creates a simple subset of `f` with only first `numGlyphs`.
-// NOTE: Simple fonts are fonts limited to 0-255 character codes.
-func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
+// SubsetFirst creates a subset of `f` limited to only the first `numGlyphs` glyphs.
+// Prunes out the glyphs from the previous font beyond that number.
+// NOTE: If any of the first numGlyphs depend on later glyphs, it can lead to incorrect rendering.
+func (f *Font) SubsetFirst(numGlyphs int) (*Font, error) {
 	if int(f.maxp.numGlyphs) <= numGlyphs {
-		// TODO: Should just return the font back and log debug message?
-		// User might not know the number of glyphs in the font apriori, unless we give some way to check.
-		return nil, errors.New("no need to subset - already fewer or same amount of glyphs")
+		logrus.Debugf("Attempting to subset font with same number of glyphs - Ignoring, returning same back")
+		return f, nil
 	}
 	newfnt := font{}
 
@@ -299,12 +331,6 @@ func (f *Font) SubsetSimple(numGlyphs int) (*Font, error) {
 			newfnt.loca.offsetsLong[0] = f.font.loca.offsetsLong[0]
 		}
 		for i, desc := range newfnt.glyf.descs {
-			if !desc.IsSimple() {
-				// TODO: Allow glyphs that are within the subset range: Can place the additional glyphs needed at the  end.
-				// Only support simple glyphs here, since otherwise they could refer to outside the exported range.
-				// Remove non-simple glyphs.
-				desc.raw = nil
-			}
 			if isShort {
 				newfnt.loca.offsetsShort[i+1] = newfnt.loca.offsetsShort[i] + offset16(len(desc.raw))/2
 			} else {
@@ -447,6 +473,28 @@ func (f *Font) Subset(indices []GlyphIndex) (newf *Font, oldnew map[GlyphIndex]G
 	//        with the glyph indices to keep (index prior to subsetting).
 	//     2. Go through each table and leave only data for the glyph indices to be kept.
 	return nil, nil, errors.New("not implemented yet")
+}
+
+// PruneTable prunes font tables `tables` by name from font.
+// Supports: "cmap", "post", "name".
+func (f *Font) PruneTables(tables ...string) error {
+	for _, table := range tables {
+		switch table {
+		case "cmap":
+			f.cmap = nil
+		case "post":
+			f.post = nil
+		case "name":
+			f.name = nil
+		}
+	}
+	return nil
+}
+
+// Optimize does some optimization such as reducing hmtx table.
+func (f *Font) Optimize() error {
+	f.optimizeHmtx()
+	return nil
 }
 
 // Write writes the font to `w`.
