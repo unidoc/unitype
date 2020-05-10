@@ -137,7 +137,6 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 	}
 
 	// Find dependencies of core sets of glyph, and expand until have all relations.
-	i := 0
 	for len(toscan) > 0 {
 		var newgids []GlyphIndex
 		for _, gid := range toscan {
@@ -153,7 +152,6 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 			}
 		}
 		toscan = newgids
-		i++
 	}
 
 	newfnt.ot = &offsetTable{}
