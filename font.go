@@ -525,6 +525,9 @@ func (f *font) TableInfo(table string) string {
 		for _, k := range f.cmap.subtableKeys {
 			subt := f.cmap.subtables[k]
 			b.WriteString(fmt.Sprintf("cmap subtable: %s: runes: %d\n", k, len(subt.runes)))
+			for i := range subt.charcodes {
+				b.WriteString(fmt.Sprintf("\t%d - Charcode %d (0x%X) - rune % X\n", i, subt.charcodes[i], subt.charcodes[i], subt.runes[i]))
+			}
 		}
 	case "loca":
 		if f.loca == nil {
