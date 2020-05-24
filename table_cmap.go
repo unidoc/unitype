@@ -120,11 +120,11 @@ type cmapSubtable struct {
 	ctx interface{} // The specific subtable, e.g. cmapSubtableFormat0, etc.
 
 	// TODO: Need GID to rune map too? or just a list of runes (with length = numGlyphs, i.e. one rune per gid)
-	cmap            map[rune]GlyphIndex
-	runes           []rune
-	charcodeToGID   map[CharCode]GlyphIndex
-	runeToCharcodes map[rune][]byte // Quick for going rune -> encoded bytes (charcodes).
-	// Not so quick for going charcodes to rune?
+	cmap                map[rune]GlyphIndex
+	runes               []rune
+	charcodes           []CharCode
+	charcodeToGID       map[CharCode]GlyphIndex
+	runeToCharcodeBytes map[rune][]byte // Quick for going rune -> encoded bytes (charcodes).
 }
 
 // cmapSubtableFormat0 represents format 0: Byte encoding table.
@@ -162,7 +162,8 @@ func (f *font) parseCmapSubtableFormat0(r *byteReader, platformID, encodingID in
 	//   (cmapEncoder).
 	cmap := map[rune]GlyphIndex{}
 	runes := make([]rune, len(st.glyphIDArray))
-	charcodes := map[rune][]byte{}
+	runeToCharcodeBytes := map[rune][]byte{}
+	charcodes := make([]CharCode, len(st.glyphIDArray))
 	charcodeToGID := map[CharCode]GlyphIndex{}
 
 	for glyphID, code := range st.glyphIDArray {
@@ -170,22 +171,24 @@ func (f *font) parseCmapSubtableFormat0(r *byteReader, platformID, encodingID in
 		codeBytes := runeDecoder.ToBytes(uint32(code))
 		r := runeDecoder.DecodeRune(codeBytes)
 		runes[glyphID] = r
+		charcodes[glyphID] = CharCode(code)
 		if _, has := cmap[r]; !has {
 			// Avoid overwrite, if get same twice, use the earlier entry.
 			cmap[r] = GlyphIndex(glyphID)
-			charcodes[r] = codeBytes
+			runeToCharcodeBytes[r] = codeBytes
 		}
 	}
 
 	return &cmapSubtable{
-		format:          0,
-		platformID:      platformID,
-		encodingID:      encodingID,
-		cmap:            cmap,
-		runes:           runes,
-		runeToCharcodes: charcodes,
-		charcodeToGID:   charcodeToGID,
-		ctx:             st,
+		format:              0,
+		platformID:          platformID,
+		encodingID:          encodingID,
+		cmap:                cmap,
+		runes:               runes,
+		runeToCharcodeBytes: runeToCharcodeBytes,
+		charcodes:           charcodes,
+		charcodeToGID:       charcodeToGID,
+		ctx:                 st,
 	}, nil
 }
 
@@ -246,7 +249,6 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 	if err != nil {
 		return nil, err
 	}
-
 	err = r.readSlice(&st.idDelta, segCount)
 	if err != nil {
 		return nil, err
@@ -274,6 +276,8 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 
 	cmap := map[rune]GlyphIndex{}
 	runes := make([]rune, int(f.maxp.numGlyphs))
+	charcodes := make([]CharCode, int(f.maxp.numGlyphs))
+	charcodeMap := make(map[CharCode]GlyphIndex, f.maxp.numGlyphs)
 	logrus.Debugf("Number of glyphs in font: %d\n", f.maxp.numGlyphs)
 	for i := 0; i < segCount-1; i++ {
 		c1 := st.startCode[i]
@@ -313,6 +317,9 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 					return nil, errors.New("gid out of range")
 				}
 				runes[int(gid)] = r
+				charcodes[int(gid)] = CharCode(c)
+				charcodeMap[CharCode(c)] = GlyphIndex(gid)
+
 				if _, has := cmap[r]; !has {
 					// Avoid overwrite, if get same twice, use the earlier entry.
 					cmap[r] = GlyphIndex(gid)
@@ -322,12 +329,14 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 	}
 
 	return &cmapSubtable{
-		format:     4,
-		platformID: platformID,
-		encodingID: encodingID,
-		cmap:       cmap,
-		runes:      runes,
-		ctx:        st,
+		format:        4,
+		platformID:    platformID,
+		encodingID:    encodingID,
+		cmap:          cmap,
+		charcodes:     charcodes,
+		charcodeToGID: charcodeMap,
+		runes:         runes,
+		ctx:           st,
 	}, nil
 }
 
@@ -398,12 +407,16 @@ func (f *font) parseCmapSubtableFormat6(r *byteReader, platformID, encodingID in
 
 	cmap := map[rune]GlyphIndex{}
 	runes := make([]rune, st.entryCount)
+	charcodes := make([]CharCode, st.entryCount)
+	charcodeMap := make(map[CharCode]GlyphIndex, st.entryCount)
 	for i := 0; i < int(st.entryCount); i++ {
 		gid := GlyphIndex(st.glyphIDArray[i])
 		code := st.firstCode + uint16(i)
 		b := runeDecoder.ToBytes(uint32(code))
 		r := runeDecoder.DecodeRune(b)
 		runes[i] = r
+		charcodes[i] = CharCode(code)
+		charcodeMap[CharCode(code)] = gid
 		if _, has := cmap[r]; !has {
 			// Avoid ovewriting (stick to first gid).
 			cmap[r] = gid
@@ -411,12 +424,14 @@ func (f *font) parseCmapSubtableFormat6(r *byteReader, platformID, encodingID in
 	}
 
 	return &cmapSubtable{
-		format:     6,
-		platformID: platformID,
-		encodingID: encodingID,
-		cmap:       cmap,
-		runes:      runes,
-		ctx:        st,
+		format:        6,
+		platformID:    platformID,
+		encodingID:    encodingID,
+		cmap:          cmap,
+		runes:         runes,
+		charcodes:     charcodes,
+		charcodeToGID: charcodeMap,
+		ctx:           st,
 	}, nil
 }
 
@@ -475,6 +490,8 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 
 	cmap := map[rune]GlyphIndex{}
 	runes := make([]rune, f.maxp.numGlyphs)
+	charcodes := make([]CharCode, f.maxp.numGlyphs)
+	charcodeMap := make(map[CharCode]GlyphIndex, f.maxp.numGlyphs)
 	for _, group := range st.groups {
 		gid := GlyphIndex(group.startGlyphID)
 		if int(gid) >= int(f.maxp.numGlyphs) {
@@ -483,9 +500,14 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 			return nil, errRangeCheck
 		}
 		for charcode := group.startCharCode; charcode <= group.endCharCode; charcode++ {
+			if int(gid) >= int(f.maxp.numGlyphs) {
+				break
+			}
 			b := runeDecoder.ToBytes(charcode)
 			r := runeDecoder.DecodeRune(b)
 			runes[gid] = r
+			charcodes[gid] = CharCode(charcode)
+			charcodeMap[CharCode(charcode)] = gid
 			if _, has := cmap[r]; !has {
 				// Avoid overwrite, if get same twice, use the earlier entry.
 				cmap[r] = gid
@@ -495,12 +517,14 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 	}
 
 	return &cmapSubtable{
-		format:     12,
-		ctx:        st,
-		platformID: platformID,
-		encodingID: encodingID,
-		cmap:       cmap,
-		runes:      runes,
+		format:        12,
+		ctx:           st,
+		platformID:    platformID,
+		encodingID:    encodingID,
+		cmap:          cmap,
+		runes:         runes,
+		charcodes:     charcodes,
+		charcodeToGID: charcodeMap,
 	}, nil
 }
 
