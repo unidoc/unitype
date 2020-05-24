@@ -109,6 +109,8 @@ func (gd *glyphDescription) parse() error {
 	r := newByteReader(bytes.NewReader(gd.raw))
 	err := gd.parseHeader(r)
 	if err != nil {
+		logrus.Debugf("ERROR parsing header: %v", err)
+		logrus.Debugf("Raw data: %d bytes", len(gd.raw))
 		return err
 	}
 
@@ -252,6 +254,10 @@ func (glyf *glyfTable) GetComponents(gid GlyphIndex) ([]GlyphIndex, error) {
 	gdesc := glyf.descs[int(gid)]
 
 	if gdesc.header == nil {
+		if len(gdesc.raw) == 0 {
+			// No glyph data.
+			return nil, nil
+		}
 		err := gdesc.parse()
 		if err != nil {
 			logrus.Debugf("ERROR parsing header: %v", err)
