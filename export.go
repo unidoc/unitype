@@ -8,10 +8,10 @@ package unitype
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"os"
+	"sort"
 
 	"github.com/sirupsen/logrus"
 )
@@ -93,12 +93,16 @@ func (f *Font) GetCmap(platformID, encodingID int) map[rune]GlyphIndex {
 	return nil
 }
 
-// SubsetKeepRunes prunes data for all GIDs except the ones corresponding to `runes`.  The GIDs are
-// maintained. Typically reduces glyf table size significantly.
-func (f *Font) SubsetKeepRunes(runes []rune) (*Font, error) {
+// LookupRunes looks up each rune in `rune` and returns a matching slice of glyph indices.
+// When a rune is not found, a GID of 0 is used (notdef).
+func (f *Font) LookupRunes(runes []rune) []GlyphIndex {
 	var maps []map[rune]GlyphIndex
 	// Search order (3,1), (1,0), (0,3).
-	maps = append(maps, f.GetCmap(3, 1), f.GetCmap(1, 0), f.GetCmap(0, 3))
+	maps = append(maps,
+		f.GetCmap(3, 1),
+		f.GetCmap(1, 0),
+		f.GetCmap(0, 3),
+	)
 
 	var indices []GlyphIndex
 	for _, r := range runes {
@@ -110,13 +114,17 @@ func (f *Font) SubsetKeepRunes(runes []rune) (*Font, error) {
 				break
 			}
 		}
-		if index == 0 {
-			return nil, fmt.Errorf("rune not found: %v", r)
-		}
 		indices = append(indices, index)
 	}
 	logrus.Debugf("Runes: %+v %s", runes, string(runes))
 	logrus.Debugf("GIDs: %+v", indices)
+	return indices
+}
+
+// SubsetKeepRunes prunes data for all GIDs except the ones corresponding to `runes`.  The GIDs are
+// maintained. Typically reduces glyf table size significantly.
+func (f *Font) SubsetKeepRunes(runes []rune) (*Font, error) {
+	indices := f.LookupRunes(runes)
 	return f.SubsetKeepIndices(indices)
 }
 
@@ -126,6 +134,8 @@ func (f *Font) SubsetKeepRunes(runes []rune) (*Font, error) {
 func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 	newfnt := font{}
 
+	// Expand the set of indices if any of the indices are composite
+	// glyphs depending on other glyphs.
 	gidIncludedMap := make(map[GlyphIndex]struct{}, len(indices))
 	for _, gid := range indices {
 		gidIncludedMap[gid] = struct{}{}
@@ -142,6 +152,7 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 		for _, gid := range toscan {
 			components, err := f.glyf.GetComponents(gid)
 			if err != nil {
+				logrus.Debugf("Error getting components for %d", gid)
 				return nil, err
 			}
 			for _, gid := range components {
@@ -237,10 +248,12 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 		newfnt.os2 = &os2Table{}
 		*newfnt.os2 = *f.font.os2
 	}
+
 	if f.font.post != nil {
 		newfnt.post = &postTable{}
 		*newfnt.post = *f.font.post
 	}
+
 	if f.font.cmap != nil {
 		newfnt.cmap = &cmapTable{}
 		*newfnt.cmap = *f.font.cmap
@@ -258,6 +271,7 @@ func (f *Font) SubsetKeepIndices(indices []GlyphIndex) (*Font, error) {
 			maxgid = gid
 		}
 	}
+	// Trim font down to only maximum needed glyphs without changing order.
 	maxNeededNum := int(maxgid) + 1
 	return subfnt.SubsetFirst(maxNeededNum)
 }
@@ -337,6 +351,21 @@ func (f *Font) SubsetFirst(numGlyphs int) (*Font, error) {
 		}
 	}
 
+	if f.font.prep != nil {
+		newfnt.prep = &prepTable{}
+		*newfnt.prep = *f.font.prep
+	}
+
+	if f.font.cvt != nil {
+		newfnt.cvt = &cvtTable{}
+		*newfnt.cvt = *f.font.cvt
+	}
+
+	if f.font.fpgm != nil {
+		newfnt.fpgm = &fpgmTable{}
+		*newfnt.fpgm = *f.font.fpgm
+	}
+
 	if f.font.name != nil {
 		newfnt.name = &nameTable{}
 		*newfnt.name = *f.font.name
@@ -358,13 +387,13 @@ func (f *Font) SubsetFirst(numGlyphs int) (*Font, error) {
 			newfnt.post.glyphNameIndex = newfnt.post.glyphNameIndex[0:numGlyphs]
 		}
 		if len(newfnt.post.offsets) > numGlyphs {
-			// TODO: Not sure if this is updated here or generated on the fly?
 			newfnt.post.offsets = newfnt.post.offsets[0:numGlyphs]
 		}
 		if len(newfnt.post.glyphNames) > numGlyphs {
 			newfnt.post.glyphNames = newfnt.post.glyphNames[0:numGlyphs]
 		}
 	}
+
 	if f.font.cmap != nil {
 		newfnt.cmap = &cmapTable{
 			version:   f.cmap.version,
@@ -386,19 +415,32 @@ func (f *Font) SubsetFirst(numGlyphs int) (*Font, error) {
 				// Makes continous entries with deltas.
 				// Does not use glyphIDData, but only the deltas.  Can lead to many segments, but should not
 				// be too bad (especially since subsetting).
+				charcodes := make([]CharCode, 0, len(subt.charcodeToGID))
+				for cc, gid := range subt.charcodeToGID {
+					if int(gid) >= numGlyphs {
+						continue
+					}
+					charcodes = append(charcodes, cc)
+				}
+				sort.Slice(charcodes, func(i, j int) bool {
+					return charcodes[i] < charcodes[j]
+				})
+
 				segments := 0
 				i := 0
-				for i < numGlyphs {
+				for i < len(charcodes) {
 					j := i + 1
-					for ; j < numGlyphs; j++ {
-						if int(subt.runes[j]-subt.runes[i]) != j-i {
+					for ; j < len(charcodes); j++ {
+						if int(charcodes[j]-charcodes[i]) != j-i ||
+							int(subt.charcodeToGID[charcodes[j]]-subt.charcodeToGID[charcodes[i]]) != j-i {
 							break
 						}
 					}
-					// from i:j-1 maps to subt.runes[i]:subt.runes[i]+j-i-1
-					startCode := uint16(subt.runes[i])
-					endCode := uint16(subt.runes[i]) + uint16(j-i-1)
-					idDelta := uint16(uint16(i) - startCode)
+					// from i:j-1 maps to subt.charcodes[i]:subt.charcodes[i]+j-i-1
+					startCode := uint16(charcodes[i])
+					endCode := uint16(charcodes[i]) + uint16(j-i-1)
+					idDelta := uint16(subt.charcodeToGID[charcodes[i]]) - uint16(charcodes[i])
+
 					newt.startCode = append(newt.startCode, startCode)
 					newt.endCode = append(newt.endCode, endCode)
 					newt.idDelta = append(newt.idDelta, idDelta)
@@ -406,6 +448,15 @@ func (f *Font) SubsetFirst(numGlyphs int) (*Font, error) {
 					segments++
 					i = j
 				}
+
+				if segments > 0 && newt.endCode[segments-1] < 65535 {
+					newt.endCode = append(newt.endCode, 65535)
+					newt.startCode = append(newt.startCode, 65535)
+					newt.idDelta = append(newt.idDelta, 1)
+					newt.idRangeOffset = append(newt.idRangeOffset, 0)
+					segments++
+				}
+
 				newt.length = uint16(2*8 + 2*4*segments)
 				newt.language = t.language
 				newt.segCountX2 = uint16(segments * 2)
@@ -423,17 +474,30 @@ func (f *Font) SubsetFirst(numGlyphs int) (*Font, error) {
 				newt := cmapSubtableFormat12{}
 				groups := 0
 
-				for i := 0; i < numGlyphs; i++ {
+				charcodes := make([]CharCode, 0, len(subt.charcodeToGID))
+				for cc, gid := range subt.charcodeToGID {
+					if int(gid) >= numGlyphs {
+						continue
+					}
+					charcodes = append(charcodes, cc)
+				}
+				sort.Slice(charcodes, func(i, j int) bool {
+					return charcodes[i] < charcodes[j]
+				})
+
+				i := 0
+				for i < len(charcodes) {
 					j := i + 1
-					for ; j < numGlyphs; j++ {
-						if int(subt.runes[j]-subt.runes[i]) != j-i {
+					for ; j < len(charcodes); j++ {
+						if int(charcodes[j]-charcodes[i]) != j-i ||
+							int(subt.charcodeToGID[charcodes[j]]-subt.charcodeToGID[charcodes[i]]) != j-i {
 							break
 						}
 					}
-					// from i:j-1 maps to subt.runes[i]:subt.runes[i]+j-i-1
-					startCharCode := uint32(subt.runes[i])
-					endCharCode := uint32(subt.runes[i]) + uint32(j-i-1)
-					startGlyphID := uint32(i)
+					// from i:j-1 maps to subt.charcodes[i]:subt.charcodes[i]+j-i-1
+					startCharCode := uint32(charcodes[i])
+					endCharCode := uint32(charcodes[i]) + uint32(j-i-1)
+					startGlyphID := uint32(subt.charcodeToGID[charcodes[i]])
 
 					group := sequentialMapGroup{
 						startCharCode: startCharCode,
@@ -442,7 +506,9 @@ func (f *Font) SubsetFirst(numGlyphs int) (*Font, error) {
 					}
 					newt.groups = append(newt.groups, group)
 					groups++
+					i = j
 				}
+
 				newt.length = uint32(2*2 + 3*4 + groups*3*4)
 				newt.language = t.language
 				newt.numGroups = uint32(groups)

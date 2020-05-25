@@ -117,6 +117,12 @@ func (r *byteReader) readSlice(slice interface{}, length int) error {
 func (r byteReader) read(fields ...interface{}) error {
 	for _, f := range fields {
 		switch t := f.(type) {
+		case **f2dot14:
+			val, err := r.readF2dot14()
+			if err != nil {
+				return err
+			}
+			*t = &val
 		case *f2dot14:
 			val, err := r.readF2dot14()
 			if err != nil {
