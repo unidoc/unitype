@@ -1,12 +1,11 @@
 module github.com/unidoc/unitype/truecli
 
-go 1.11
+go 1.13
 
 require (
-	github.com/unidoc/unitype v0.0.0-20200419001631-11c8f668ac91
-	github.com/sirupsen/logrus v1.5.0
-	github.com/spf13/cobra v1.0.0
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/sirupsen/logrus v1.8.1
+	github.com/spf13/cobra v1.1.3
+	github.com/unidoc/unitype v0.2.1
 )
 
 replace github.com/unidoc/unitype => ../
