@@ -65,6 +65,17 @@ func (f *font) GetNameByID(nameID int) string {
 	return ""
 }
 
+// GetNameRecords returns name records as slice map.
+func (f *font) GetNameRecords() []map[uint16]string {
+	var nameRecords []map[uint16]string
+	nameRecord := make(map[uint16]string)
+	for _, nr := range f.name.nameRecords {
+		nameRecord[nr.nameID] = nr.Decoded()
+		nameRecords = append(nameRecords, nameRecord)
+	}
+	return nameRecords
+}
+
 // numPrintables returns the number of printable runes in `str`
 func numPrintables(str string) int {
 	printables := 0
