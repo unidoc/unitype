@@ -65,7 +65,8 @@ func (f *font) GetNameByID(nameID int) string {
 	return ""
 }
 
-// GetNameRecords returns name records as slice map.
+// GetNameRecords returns name records as map of language ID
+// that contais name ID and it's value.
 func (f *font) GetNameRecords() map[uint16]map[uint16]string {
 	var nameRecords = make(map[uint16]map[uint16]string, 0)
 	for _, nr := range f.name.nameRecords {
