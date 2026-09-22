@@ -83,3 +83,29 @@ func TestGlyphAdvance_OutOfRange(t *testing.T) {
 	assert.Equal(t, uint16(0), f.GlyphAdvance(invalid), "GID at NumGlyphs() is out of range")
 	assert.Equal(t, uint16(0), f.GlyphAdvance(invalid+1000), "far out-of-range GID must also return 0")
 }
+
+// TestGlyphAdvance_TrailingInheritance covers the one GlyphAdvance branch no
+// bundled test font exercises: a VALID gid beyond numberOfHMetrics (hmtx
+// stores explicit widths only for the first numberOfHMetrics glyphs; every
+// later glyph inherits the last one's advance, per the OpenType hmtx spec).
+// Roboto-Regular has numberOfHMetrics == numGlyphs (verified: no two
+// consecutive trailing glyphs share an advance width), so it never reaches
+// this path — a synthetic Font is the only way to cover it. White-box
+// (package unitype) so the private hmtx/maxp fields are reachable directly;
+// only what GlyphAdvance itself reads needs to be populated.
+func TestGlyphAdvance_TrailingInheritance(t *testing.T) {
+	f := &Font{font: &font{
+		maxp: &maxpTable{numGlyphs: 5},
+		hmtx: &hmtxTable{hMetrics: []longHorMetric{
+			{advanceWidth: 100},
+			{advanceWidth: 200},
+			{advanceWidth: 300}, // numberOfHMetrics == 3; gids 3 and 4 have no entry
+		}},
+	}}
+
+	assert.Equal(t, uint16(100), f.GlyphAdvance(0), "gid within hMetrics uses its own entry")
+	assert.Equal(t, uint16(300), f.GlyphAdvance(2), "last explicit hMetrics entry")
+	assert.Equal(t, uint16(300), f.GlyphAdvance(3), "valid gid past hMetrics inherits the last advance")
+	assert.Equal(t, uint16(300), f.GlyphAdvance(4), "valid gid past hMetrics inherits the last advance")
+	assert.Equal(t, uint16(0), f.GlyphAdvance(5), "gid == numGlyphs is out of range, not trailing")
+}
