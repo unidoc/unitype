@@ -26,6 +26,15 @@ func TestOS2Metrics_Roboto(t *testing.T) {
 	assert.GreaterOrEqual(t, m.TypoLineGap, int16(0))
 	assert.Greater(t, m.WinAscent, uint16(0))
 	assert.Greater(t, m.WinDescent, uint16(0))
+	// XHeight/CapHeight/UseTypoMetrics were previously unasserted, so a wrong
+	// version gate (o.version >= 2) or a wrong fsSelection bit mask would pass
+	// silently. Unlike the ascent/descent fields above, these three come
+	// straight from this specific bundled font file rather than "any
+	// reasonable font," so exact values are the right check here (verified
+	// directly against testdata/roboto/Roboto-Regular.ttf, not assumed).
+	assert.Equal(t, int16(1082), m.XHeight, "Roboto-Regular sxHeight")
+	assert.Equal(t, int16(1456), m.CapHeight, "Roboto-Regular sCapHeight")
+	assert.False(t, m.UseTypoMetrics, "Roboto-Regular fsSelection bit 7 (USE_TYPO_METRICS) is unset")
 }
 
 func TestHheaMetrics_Roboto(t *testing.T) {
