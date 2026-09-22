@@ -100,6 +100,9 @@ func (f *Font) GlyphAdvance(gid GlyphIndex) uint16 {
 	if f.font == nil || f.font.hmtx == nil {
 		return 0
 	}
+	if int(gid) >= f.NumGlyphs() {
+		return 0
+	}
 	h := f.font.hmtx
 	if len(h.hMetrics) == 0 {
 		return 0

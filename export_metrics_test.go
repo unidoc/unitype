@@ -62,3 +62,15 @@ func TestGlyphAdvance_Roboto(t *testing.T) {
 	adv := f.GlyphAdvance(gids[0])
 	assert.Greater(t, adv, uint16(0), "'A' should have a positive advance")
 }
+
+func TestGlyphAdvance_OutOfRange(t *testing.T) {
+	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
+	require.NoError(t, err)
+
+	// A GID at or beyond the font's real glyph count is out of range and must
+	// return 0, per the doc comment — not hmtx's trailing-glyph inheritance
+	// value, which only applies to real glyphs beyond numberOfHMetrics.
+	invalid := GlyphIndex(f.NumGlyphs())
+	assert.Equal(t, uint16(0), f.GlyphAdvance(invalid), "GID at NumGlyphs() is out of range")
+	assert.Equal(t, uint16(0), f.GlyphAdvance(invalid+1000), "far out-of-range GID must also return 0")
+}
