@@ -27,14 +27,9 @@ const (
 
 // os2Table represents the OS/2 metrics table. It consists of metrics and other data that are required.
 type os2Table struct {
-	// length is the table record's declared byte length as parsed (or, for a
-	// table built programmatically rather than parsed, the length writeOS2
-	// would produce for the fields actually populated). It records how far
-	// into the version's full field layout the source data actually went,
-	// so a table that claims a version but was truncated before that
-	// version's fields end can be told apart from a genuine short table of
-	// an earlier version. Never read directly by callers - use
-	// hasTypoWinMetrics()/hasV1Metrics()/hasV2Metrics()/hasV5Metrics().
+	// length is the table record's declared byte length as parsed, or 0 for
+	// a table built programmatically. Never read directly - use
+	// effectiveLength() or the hasXxxMetrics() presence checks.
 	length uint32
 
 	// Version 0+
@@ -85,32 +80,48 @@ type os2Table struct {
 	usUpperOpticalPointSize uint16
 }
 
+// effectiveLength returns t.length if set, else the spec length for
+// t.version, so a table built in code is written at its version's full size.
+func (t *os2Table) effectiveLength() uint32 {
+	if t.length != 0 {
+		return t.length
+	}
+	switch {
+	case t.version >= 5:
+		return os2LenV5
+	case t.version >= 2:
+		return os2LenV2to4
+	case t.version >= 1:
+		return os2LenV1
+	default:
+		return os2LenV0Microsoft
+	}
+}
+
 // hasTypoWinMetrics reports whether sTypoAscender/sTypoDescender/
 // sTypoLineGap/usWinAscent/usWinDescent were actually present in the source
-// data: the table must both declare a version that defines these fields and
-// have a length that reaches them, so a v1+ table padded or truncated short
-// of its own version's fields (e.g. a "v1" table of 80 bytes) isn't treated
-// as having them just because 80 >= os2LenV0Microsoft.
+// data. These fields exist in every version from the 78-byte Microsoft v0
+// table onward, so length alone (no version check) gates them.
 func (t *os2Table) hasTypoWinMetrics() bool {
-	return t.length >= os2LenV0Microsoft
+	return t.effectiveLength() >= os2LenV0Microsoft
 }
 
 // hasV1Metrics reports whether ulCodePageRange1/ulCodePageRange2 were
 // actually present in the source data.
 func (t *os2Table) hasV1Metrics() bool {
-	return t.version >= 1 && t.length >= os2LenV1
+	return t.version >= 1 && t.effectiveLength() >= os2LenV1
 }
 
 // hasV2Metrics reports whether sxHeight/sCapHeight/usDefaultChar/
 // usBreakChar/usMaxContext were actually present in the source data.
 func (t *os2Table) hasV2Metrics() bool {
-	return t.version >= 2 && t.length >= os2LenV2to4
+	return t.version >= 2 && t.effectiveLength() >= os2LenV2to4
 }
 
 // hasV5Metrics reports whether usLowerOpticalPointSize/
 // usUpperOpticalPointSize were actually present in the source data.
 func (t *os2Table) hasV5Metrics() bool {
-	return t.version >= 5 && t.length >= os2LenV5
+	return t.version >= 5 && t.effectiveLength() >= os2LenV5
 }
 
 // os2MaxTableLen bounds the buffer parseOS2Table allocates for a table
@@ -120,15 +131,12 @@ func (t *os2Table) hasV5Metrics() bool {
 // allocate whatever size the file claims.
 const os2MaxTableLen = 1024
 
-// parseOS2Table parses the OS/2 table. Every read is bounded to the table
-// record's declared length: `r` is read into a fixed buffer once and parsed
-// from that buffer, rather than the shared file-wide byteReader, specifically
-// so a truncated table (short v0, or a table that claims a version but was
-// cut off before that version's fields end) cannot read past its own bytes
-// into whatever table happens to follow OS/2 in the file. A short read
-// leaves the fields for versions/blocks beyond that point at zero; callers
-// distinguish "absent because truncated" from "present and legitimately
-// zero" via hasTypoWinMetrics/hasV1Metrics/hasV2Metrics/hasV5Metrics.
+// parseOS2Table parses the OS/2 table. `r` is read into a fixed buffer sized
+// to the table record's declared length and parsed from that buffer, so a
+// truncated table cannot read past its own bytes into whatever table follows
+// OS/2 in the file; callers distinguish "absent because truncated" from
+// "present and legitimately zero" via hasTypoWinMetrics/hasV1Metrics/
+// hasV2Metrics/hasV5Metrics.
 func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 	tr, has, err := f.seekToTable(r, "OS/2")
 	if err != nil {
@@ -228,13 +236,9 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 	return t, nil
 }
 
-// writeOS2 mirrors parseOS2Table's truncation: it stops writing at the same
-// boundary the source table was actually parsed to (hasTypoWinMetrics/
-// hasV1Metrics/hasV2Metrics/hasV5Metrics), not just t.version. Without this, parsing a
-// short (68-byte) v0 table - which leaves sTypoAscender..usWinDescent at
-// zero because they were never in the source - and then writing it back out
-// would silently fabricate a 78-byte table with usWinAscent/usWinDescent = 0,
-// which is a real (not absent) value renderers use to clip glyphs.
+// writeOS2 mirrors parseOS2Table's field-presence boundaries (hasTypoWinMetrics/
+// hasV1Metrics/hasV2Metrics/hasV5Metrics), not just t.version, so a round trip
+// never fabricates fields the source table never had.
 func (f *font) writeOS2(w *byteWriter) error {
 	if f.os2 == nil {
 		return nil
@@ -275,10 +279,6 @@ func (f *font) writeOS2(w *byteWriter) error {
 		return err
 	}
 
-	// A zero-value os2Table (length never set, e.g. built programmatically
-	// rather than parsed) has length 0, which is < os2LenV0Microsoft - write
-	// it as a short v0 table rather than silently promoting it to full v0,
-	// matching parseOS2Table's own "absent, not zero" semantics.
 	if !t.hasTypoWinMetrics() {
 		return nil
 	}

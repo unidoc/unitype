@@ -176,12 +176,9 @@ func TestParseHmtx_AcceptsExactLength(t *testing.T) {
 	assert.Len(t, table.leftSideBearings, 2)
 }
 
-// TestParseHmtx_ClampsShortLeftSideBearings: unlike a short hMetrics block
-// (which has no defined fallback and is rejected outright), a table record
-// that has every hMetric entry but falls short on the trailing
-// leftSideBearings array must clamp rather than reject - those glyphs simply
-// have no explicit left-side-bearing, which is no worse than any font that
-// omits hmtx entirely.
+// TestParseHmtx_ClampsShortLeftSideBearings asserts a table record with
+// complete hMetrics but a short trailing leftSideBearings array clamps
+// rather than rejects the whole table.
 func TestParseHmtx_ClampsShortLeftSideBearings(t *testing.T) {
 	f := &font{
 		maxp: &maxpTable{numGlyphs: 5},

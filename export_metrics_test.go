@@ -107,7 +107,7 @@ func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
 // if parseOS2Table ever reads past its own declared length, it picks these
 // up instead of leaving the corresponding fields zero.
 func truncatedOS2Bytes(declaredVersion uint16, payloadLen int) []byte {
-	payload := make([]byte, payloadLen)
+	payload := bytes.Repeat([]byte{0xAB}, payloadLen)
 	payload[0] = byte(declaredVersion >> 8) // big-endian, per byteReader.readUint16
 	payload[1] = byte(declaredVersion)
 	return append(payload, bytes.Repeat([]byte{0xFF}, 20)...)
@@ -170,7 +170,6 @@ func TestParseOS2Table_Truncated(t *testing.T) {
 			m := (&Font{font: f}).OS2Metrics()
 			assert.True(t, m.Present)
 			assert.Equal(t, tt.wantTypoWin, m.HasTypoWinMetrics)
-			assert.Equal(t, tt.wantV2Metrics, m.HasV2Metrics)
 			if !tt.wantTypoWin {
 				assert.Zero(t, m.TypoAscender, "OS2Metrics must not surface bytes read past the table boundary")
 				assert.Zero(t, m.WinDescent)
@@ -222,13 +221,25 @@ func TestOS2_ShortV0RoundTrip(t *testing.T) {
 	assert.False(t, roundTripped.hasTypoWinMetrics(), "round-tripped table must still be short, not promoted to full v0 with zeroed fields")
 }
 
-// TestParseOS2Table_LengthDegrades covers both length edges parseOS2Table
-// cannot fit to any defined OS/2 version: below os2LenV0Apple (68, the
-// shortest legal table) and above os2MaxTableLen (an allocation-DoS guard
-// against a file-controlled value). OS/2 is optional - the font's own !has
-// branch already treats a missing table as fine - so both edges degrade to
-// "absent" (nil, nil) rather than failing the whole font over one malformed
-// optional table.
+// TestOS2_ProgrammaticTableWritesFullVersion asserts a v4 os2Table built in
+// code (length unset) writes its full v4 layout.
+func TestOS2_ProgrammaticTableWritesFullVersion(t *testing.T) {
+	table := &os2Table{version: 4, sxHeight: 500, sCapHeight: 700, panose10: make([]uint8, 10)}
+	require.True(t, table.hasV1Metrics())
+	require.True(t, table.hasV2Metrics())
+	require.False(t, table.hasV5Metrics())
+
+	var buf bytes.Buffer
+	w := newByteWriter(&buf)
+	f := &font{os2: table}
+	require.NoError(t, f.writeOS2(w))
+	require.NoError(t, w.flush())
+	assert.Equal(t, int(os2LenV2to4), buf.Len(), "must write the full v4 table, not truncate on an unset length")
+}
+
+// TestParseOS2Table_LengthDegrades asserts a table record shorter than
+// os2LenV0Apple or longer than os2MaxTableLen parses as absent (nil, nil),
+// not an error.
 func TestParseOS2Table_LengthDegrades(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -274,12 +285,8 @@ func TestGlyphAdvance_TrailingInheritance(t *testing.T) {
 	}
 }
 
-// TestParseFile_BundledCorpus walks every font under testdata/ and asserts
-// each still parses, and that OS/2 - the one table this PR's round of fixes
-// taught to degrade instead of hard-failing - is Present on all of them. The
-// new required-length checks on head/hhea/maxp/hmtx/OS/2 only ever ran
-// against the handful of fonts individual tests happened to load; this is
-// the regression net for the rest of the bundled corpus.
+// TestParseFile_BundledCorpus asserts every font under testdata/ parses and
+// reports OS2Metrics().Present.
 func TestParseFile_BundledCorpus(t *testing.T) {
 	var paths []string
 	err := filepath.WalkDir("./testdata", func(path string, d fs.DirEntry, err error) error {

@@ -44,10 +44,7 @@ func (f *font) parseHhea(r *byteReader) (*hheaTable, error) {
 		return nil, nil
 	}
 	if tr.length < hheaTableLen {
-		// A short hhea can't be safely read at all (unlike OS/2, hhea has no
-		// "later fields absent" case - every field is required), and a
-		// garbage numberOfHMetrics from reading past this table's end would
-		// propagate straight into parseHmtx's own length check.
+		// Every hhea field is required; a short table has no safe partial read.
 		logrus.Debug("hhea table shorter than the required length")
 		return nil, errRangeCheck
 	}
