@@ -7,6 +7,8 @@ package unitype
 
 import (
 	"bytes"
+	"io/fs"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,7 +72,7 @@ func TestRobotoMetrics(t *testing.T) {
 		_, ok := f.GlyphAdvance(invalid)
 		assert.False(t, ok, "GID at NumGlyphs() is out of range")
 
-		// Uses the max representable GlyphIndex rather than an offset.
+		// GID 0xFFFF is out of range.
 		require.Less(t, f.NumGlyphs(), 0xFFFF, "test assumes NumGlyphs() leaves room below the GlyphIndex max")
 		_, ok = f.GlyphAdvance(GlyphIndex(0xFFFF))
 		assert.False(t, ok, "far out-of-range GID must also report not-ok")
@@ -269,5 +271,38 @@ func TestGlyphAdvance_TrailingInheritance(t *testing.T) {
 		adv, ok := f.GlyphAdvance(gid)
 		assert.True(t, ok, "gid %d is valid, past hMetrics but within numGlyphs", gid)
 		assert.Equal(t, last, adv, "gid %d inherits the last explicit advance", gid)
+	}
+}
+
+// TestParseFile_BundledCorpus walks every font under testdata/ and asserts
+// each still parses, and that OS/2 - the one table this PR's round of fixes
+// taught to degrade instead of hard-failing - is Present on all of them. The
+// new required-length checks on head/hhea/maxp/hmtx/OS/2 only ever ran
+// against the handful of fonts individual tests happened to load; this is
+// the regression net for the rest of the bundled corpus.
+func TestParseFile_BundledCorpus(t *testing.T) {
+	var paths []string
+	err := filepath.WalkDir("./testdata", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		switch filepath.Ext(path) {
+		case ".ttf", ".otf":
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, paths, "expected at least one bundled font under testdata/")
+
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			f, err := ParseFile(path)
+			require.NoError(t, err)
+			assert.True(t, f.OS2Metrics().Present, "bundled fonts are expected to carry an OS/2 table")
+		})
 	}
 }
