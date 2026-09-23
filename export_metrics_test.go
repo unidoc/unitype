@@ -129,7 +129,9 @@ func TestParseOS2Table_Truncated(t *testing.T) {
 		{"v0 Microsoft (78)", 0, os2LenV0Microsoft, true, false, false},
 		{"v1 (86)", 1, os2LenV1, true, false, false},
 		{"v4 truncated at v1 length (86)", 4, os2LenV1, true, false, false},
+		{"v1 padded to v2-4 length (96): version, not just length, gates v2 fields", 1, os2LenV2to4, true, false, false},
 		{"v2-4 (96)", 4, os2LenV2to4, true, true, false},
+		{"v2-4 padded to v5 length (100): version, not just length, gates v5 fields", 4, os2LenV5, true, true, false},
 		{"v5 (100)", 5, os2LenV5, true, true, true},
 	}
 	for _, tt := range tests {
@@ -166,9 +168,14 @@ func TestParseOS2Table_Truncated(t *testing.T) {
 			m := (&Font{font: f}).OS2Metrics()
 			assert.True(t, m.Present)
 			assert.Equal(t, tt.wantTypoWin, m.HasTypoWinMetrics)
+			assert.Equal(t, tt.wantV2Metrics, m.HasV2Metrics)
 			if !tt.wantTypoWin {
 				assert.Zero(t, m.TypoAscender, "OS2Metrics must not surface bytes read past the table boundary")
 				assert.Zero(t, m.WinDescent)
+			}
+			if !tt.wantV2Metrics {
+				assert.Zero(t, m.XHeight, "OS2Metrics must not surface a v2+ field the table's own version doesn't define")
+				assert.Zero(t, m.CapHeight)
 			}
 		})
 	}
@@ -213,19 +220,35 @@ func TestOS2_ShortV0RoundTrip(t *testing.T) {
 	assert.False(t, roundTripped.hasTypoWinMetrics(), "round-tripped table must still be short, not promoted to full v0 with zeroed fields")
 }
 
-// TestParseOS2Table_LengthRangeCheck: a table record claiming a length far
-// beyond any defined OS/2 version (os2LenV5 = 100) must be rejected rather
-// than trigger an allocation sized off an untrusted file-controlled value.
-func TestParseOS2Table_LengthRangeCheck(t *testing.T) {
-	f := &font{
-		trec: &tableRecords{
-			trMap: map[string]*tableRecord{
-				"OS/2": {offset: 0, length: 0xFFFFFFFF},
-			},
-		},
+// TestParseOS2Table_LengthDegrades covers both length edges parseOS2Table
+// cannot fit to any defined OS/2 version: below os2LenV0Apple (68, the
+// shortest legal table) and above os2MaxTableLen (an allocation-DoS guard
+// against a file-controlled value). OS/2 is optional - the font's own !has
+// branch already treats a missing table as fine - so both edges degrade to
+// "absent" (nil, nil) rather than failing the whole font over one malformed
+// optional table.
+func TestParseOS2Table_LengthDegrades(t *testing.T) {
+	tests := []struct {
+		name   string
+		length uint32
+	}{
+		{"shorter than any defined OS/2 version", 67},
+		{"far beyond any defined OS/2 version", 0xFFFFFFFF},
 	}
-	_, err := f.parseOS2Table(newByteReader(bytes.NewReader(nil)))
-	assert.ErrorIs(t, err, errRangeCheck)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &font{
+				trec: &tableRecords{
+					trMap: map[string]*tableRecord{
+						"OS/2": {offset: 0, length: tt.length},
+					},
+				},
+			}
+			table, err := f.parseOS2Table(newByteReader(bytes.NewReader(nil)))
+			require.NoError(t, err)
+			assert.Nil(t, table)
+		})
+	}
 }
 
 // TestGlyphAdvance_TrailingInheritance covers a VALID gid beyond

@@ -34,7 +34,7 @@ type os2Table struct {
 	// so a table that claims a version but was truncated before that
 	// version's fields end can be told apart from a genuine short table of
 	// an earlier version. Never read directly by callers - use
-	// hasTypoWinMetrics()/hasV2Metrics()/hasV5Metrics().
+	// hasTypoWinMetrics()/hasV1Metrics()/hasV2Metrics()/hasV5Metrics().
 	length uint32
 
 	// Version 0+
@@ -87,29 +87,37 @@ type os2Table struct {
 
 // hasTypoWinMetrics reports whether sTypoAscender/sTypoDescender/
 // sTypoLineGap/usWinAscent/usWinDescent were actually present in the source
-// data (length >= os2LenV0Microsoft), as opposed to being zero because the
-// table was a short Apple-style version 0 table.
+// data: the table must both declare a version that defines these fields and
+// have a length that reaches them, so a v1+ table padded or truncated short
+// of its own version's fields (e.g. a "v1" table of 80 bytes) isn't treated
+// as having them just because 80 >= os2LenV0Microsoft.
 func (t *os2Table) hasTypoWinMetrics() bool {
 	return t.length >= os2LenV0Microsoft
+}
+
+// hasV1Metrics reports whether ulCodePageRange1/ulCodePageRange2 were
+// actually present in the source data.
+func (t *os2Table) hasV1Metrics() bool {
+	return t.version >= 1 && t.length >= os2LenV1
 }
 
 // hasV2Metrics reports whether sxHeight/sCapHeight/usDefaultChar/
 // usBreakChar/usMaxContext were actually present in the source data.
 func (t *os2Table) hasV2Metrics() bool {
-	return t.length >= os2LenV2to4
+	return t.version >= 2 && t.length >= os2LenV2to4
 }
 
 // hasV5Metrics reports whether usLowerOpticalPointSize/
 // usUpperOpticalPointSize were actually present in the source data.
 func (t *os2Table) hasV5Metrics() bool {
-	return t.length >= os2LenV5
+	return t.version >= 5 && t.length >= os2LenV5
 }
 
 // os2MaxTableLen bounds the buffer parseOS2Table allocates for a table
 // record's declared length: no defined OS/2 version needs more than
 // os2LenV5 (100) bytes, so a much larger declared length can only be a
-// corrupt or adversarial table record - reject it rather than allocate
-// whatever size the file claims.
+// corrupt or adversarial table record - treat it as absent rather than
+// allocate whatever size the file claims.
 const os2MaxTableLen = 1024
 
 // parseOS2Table parses the OS/2 table. Every read is bounded to the table
@@ -120,7 +128,7 @@ const os2MaxTableLen = 1024
 // into whatever table happens to follow OS/2 in the file. A short read
 // leaves the fields for versions/blocks beyond that point at zero; callers
 // distinguish "absent because truncated" from "present and legitimately
-// zero" via hasTypoWinMetrics/hasV2Metrics/hasV5Metrics.
+// zero" via hasTypoWinMetrics/hasV1Metrics/hasV2Metrics/hasV5Metrics.
 func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 	tr, has, err := f.seekToTable(r, "OS/2")
 	if err != nil {
@@ -130,13 +138,13 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		logrus.Debug("OS/2 table not present")
 		return nil, nil
 	}
-	if tr.length < os2LenV0Apple {
-		logrus.Debug("OS/2 table shorter than the minimum defined length")
-		return nil, errRangeCheck
-	}
-	if tr.length > os2MaxTableLen {
-		logrus.Debug("OS/2 table length range error")
-		return nil, errRangeCheck
+	// OS/2 is optional (the !has branch above already treats its absence as
+	// fine), so a table whose declared length can't possibly hold any
+	// defined version degrades the same way: log and report it as absent
+	// rather than failing the whole font over one malformed optional table.
+	if tr.length < os2LenV0Apple || tr.length > os2MaxTableLen {
+		logrus.Debug("OS/2 table length outside any defined version's range, treating as absent")
+		return nil, nil
 	}
 
 	var buf []byte
@@ -193,7 +201,7 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		return nil, err
 	}
 
-	if tr.length < os2LenV1 {
+	if !t.hasV1Metrics() {
 		return t, nil
 	}
 	err = br.read(&t.ulCodePageRange1, &t.ulCodePageRange2)
@@ -222,7 +230,7 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 
 // writeOS2 mirrors parseOS2Table's truncation: it stops writing at the same
 // boundary the source table was actually parsed to (hasTypoWinMetrics/
-// hasV2Metrics/hasV5Metrics), not just t.version. Without this, parsing a
+// hasV1Metrics/hasV2Metrics/hasV5Metrics), not just t.version. Without this, parsing a
 // short (68-byte) v0 table - which leaves sTypoAscender..usWinDescent at
 // zero because they were never in the source - and then writing it back out
 // would silently fabricate a 78-byte table with usWinAscent/usWinDescent = 0,
@@ -279,7 +287,7 @@ func (f *font) writeOS2(w *byteWriter) error {
 		return err
 	}
 
-	if t.length < os2LenV1 {
+	if !t.hasV1Metrics() {
 		return nil
 	}
 	err = w.write(t.ulCodePageRange1, t.ulCodePageRange2)

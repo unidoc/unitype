@@ -9,10 +9,12 @@ package unitype
 // Ascender/Descender/LineGap are in font design units (FUnits). Divide by
 // UnitsPerEm to convert to em; multiply by fontSize (px) for pixel values.
 //
-// Version distinguishes "field not defined at this OS/2 version" from "field
-// defined and legitimately zero" for every version-gated field below -
-// callers that need to tell the two apart should check Version themselves;
-// a bare zero value cannot express the difference.
+// Version alone does not distinguish "field not defined at this OS/2
+// version" from "field defined and legitimately zero": a table can claim a
+// version its own truncated length contradicts (e.g. a "v2" table only 86
+// bytes long, short of the 96 v2's fields need). Each version-gated group of
+// fields below has its own Has* presence flag for this reason - check that,
+// not Version, before trusting a value.
 //
 // TypoAscender/TypoDescender/TypoLineGap/WinAscent/WinDescent read zero, and
 // HasTypoWinMetrics is false, if the table is a short (68-byte) Apple-style
@@ -40,8 +42,9 @@ type OS2Metrics struct {
 	WinAscent         uint16
 	WinDescent        uint16
 	HasTypoWinMetrics bool  // true if TypoAscender..WinDescent are from the source table, not absent-and-zero
-	XHeight           int16 // sxHeight; only defined for Version >= 2, else 0
-	CapHeight         int16 // sCapHeight; only defined for Version >= 2, else 0
+	XHeight           int16 // sxHeight; only meaningful if HasV2Metrics, else 0
+	CapHeight         int16 // sCapHeight; only meaningful if HasV2Metrics, else 0
+	HasV2Metrics      bool  // true if XHeight/CapHeight are from the source table, not absent-and-zero
 	UseTypoMetrics    bool  // fsSelection bit 7, see doc comment above
 	Present           bool  // false if the font has no OS/2 table
 }
@@ -83,7 +86,8 @@ func (f *Font) OS2Metrics() OS2Metrics {
 		// fields it refers to are actually present (see doc comment).
 		m.UseTypoMetrics = o.version >= 4 && (o.fsSelection&0x0080) != 0
 	}
-	if o.hasV2Metrics() {
+	m.HasV2Metrics = o.hasV2Metrics()
+	if m.HasV2Metrics {
 		m.XHeight = o.sxHeight
 		m.CapHeight = o.sCapHeight
 	}
