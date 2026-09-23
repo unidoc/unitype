@@ -1,9 +1,11 @@
 package unitype
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOptimizeHmtxTable(t *testing.T) {
@@ -127,4 +129,49 @@ func TestOptimizeHmtxTable(t *testing.T) {
 		assert.Equal(t, tcase.expLSB, tcase.fnt.hmtx.leftSideBearings)
 		assert.Equal(t, tcase.exphMetrics, tcase.fnt.hmtx.hMetrics)
 	}
+}
+
+// TestParseHmtx_RejectsLengthMismatch: hmtx has no length field of its own -
+// its size is implied by numberOfHMetrics (hhea) and numGlyphs (maxp). A
+// font where those imply more bytes than the hmtx table record actually
+// declares must be rejected, not silently read past hmtx into whatever
+// bytes follow it in the file. White-box (package unitype): no bundled font
+// has this inconsistency.
+func TestParseHmtx_RejectsLengthMismatch(t *testing.T) {
+	// hhea says 3 hMetrics (3*4=12 bytes) and maxp says 5 glyphs, so 2
+	// trailing lsb entries (2*2=4 bytes) are implied: 16 bytes total. The
+	// table record only declares 10, so parseHmtx must reject rather than
+	// read 6 bytes belonging to whatever follows hmtx in the file.
+	f := &font{
+		maxp: &maxpTable{numGlyphs: 5},
+		hhea: &hheaTable{numberOfHMetrics: 3},
+		trec: &tableRecords{
+			trMap: map[string]*tableRecord{
+				"hmtx": {offset: 0, length: 10},
+			},
+		},
+	}
+	data := bytes.Repeat([]byte{0xFF}, 32)
+	_, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	assert.ErrorIs(t, err, errRangeCheck)
+}
+
+// TestParseHmtx_AcceptsExactLength is the positive-path complement to
+// TestParseHmtx_RejectsLengthMismatch: a table record whose declared length
+// exactly matches what numberOfHMetrics/numGlyphs imply must parse.
+func TestParseHmtx_AcceptsExactLength(t *testing.T) {
+	f := &font{
+		maxp: &maxpTable{numGlyphs: 5},
+		hhea: &hheaTable{numberOfHMetrics: 3},
+		trec: &tableRecords{
+			trMap: map[string]*tableRecord{
+				"hmtx": {offset: 0, length: 16}, // 3*4 + 2*2
+			},
+		},
+	}
+	data := bytes.Repeat([]byte{0x00}, 16)
+	table, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	require.NoError(t, err)
+	assert.Len(t, table.hMetrics, 3)
+	assert.Len(t, table.leftSideBearings, 2)
 }

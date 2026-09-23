@@ -25,7 +25,7 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		return nil, errRequiredField
 	}
 
-	_, has, err := f.seekToTable(r, "hmtx")
+	tr, has, err := f.seekToTable(r, "hmtx")
 	if err != nil {
 		return nil, err
 	}
@@ -34,9 +34,33 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		return nil, nil
 	}
 
+	// hmtx has no length field of its own: its size is implied by
+	// numberOfHMetrics (hhea) and numGlyphs (maxp), per
+	// https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx .
+	// Both are read from separate tables that a malformed or adversarial
+	// font can set inconsistently with hmtx's own table-directory length;
+	// byteReader has no table-boundary awareness of its own (see
+	// table_os2.go's parseOS2Table doc comment for the general problem), so
+	// without this check a hmtx implied-larger-than-declared would read
+	// past hmtx into whatever table follows it in the file and return those
+	// bytes as real advance widths/left-side-bearings. Reject rather than
+	// clamp: unlike OS/2 (which has a defined "absent" meaning and an hhea
+	// fallback), a truncated hmtx has no safe partial reading - clamping
+	// would silently fabricate advances for glyphs that should have had
+	// real explicit widths.
+	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
+	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
+	wantLen := 4 * numberOfHMetrics
+	if lsbLen > 0 {
+		wantLen += 2 * lsbLen
+	}
+	if int(tr.length) < wantLen {
+		logrus.Debug("hmtx table shorter than numberOfHMetrics/numGlyphs imply")
+		return nil, errRangeCheck
+	}
+
 	t := &hmtxTable{}
 
-	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
 	for i := 0; i < numberOfHMetrics; i++ {
 		var lhm longHorMetric
 		err := r.read(&lhm.advanceWidth, &lhm.lsb)
@@ -47,7 +71,6 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		t.hMetrics = append(t.hMetrics, lhm)
 	}
 
-	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
 	if lsbLen > 0 {
 		err = r.readSlice(&t.leftSideBearings, lsbLen)
 		if err != nil {
