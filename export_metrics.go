@@ -14,30 +14,36 @@ package unitype
 // callers that need to tell the two apart should check Version themselves;
 // a bare zero value cannot express the difference.
 //
-// TypoAscender/TypoDescender/TypoLineGap/WinAscent/WinDescent read zero if
-// the table is a short (68-byte) Apple-style version 0 OS/2 table, which ends
-// before these fields; Version alone does not distinguish this case from a
-// full-length version 0 table, since both report Version == 0.
+// TypoAscender/TypoDescender/TypoLineGap/WinAscent/WinDescent read zero, and
+// HasTypoWinMetrics is false, if the table is a short (68-byte) Apple-style
+// version 0 OS/2 table, which ends before these fields; Version alone does
+// not distinguish this case from a full-length version 0 table, since both
+// report Version == 0. A caller that needs a line-height/clipping source
+// even for a short table should fall back to HheaMetrics.
 //
 // UseTypoMetrics reports fsSelection bit 7 (USE_TYPO_METRICS). When set, the
 // font author intends sTypoAscender/sTypoDescender/sTypoLineGap to drive
 // line-height rather than the legacy usWinAscent/usWinDescent values returned
 // by many TrueType rasterizers. Bit 7 is only defined from OS/2 version 4
-// onward; in versions 0-3 it is reserved and may hold unrelated data, so this
-// field is always false for those versions regardless of the bit's value.
+// onward, and only meaningful if TypoAscender etc. are actually present, so
+// this field is false whenever HasTypoWinMetrics is false even if the table
+// claims version 4+ (a table can claim a version its own truncated length
+// contradicts) - otherwise a caller honoring USE_TYPO_METRICS would drive
+// line-height off TypoAscender=0 instead of falling back to HheaMetrics.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/os2
 type OS2Metrics struct {
-	Version        uint16
-	TypoAscender   int16
-	TypoDescender  int16
-	TypoLineGap    int16
-	WinAscent      uint16
-	WinDescent     uint16
-	XHeight        int16 // sxHeight; only defined for Version >= 2, else 0
-	CapHeight      int16 // sCapHeight; only defined for Version >= 2, else 0
-	UseTypoMetrics bool  // fsSelection bit 7
-	Present        bool  // false if the font has no OS/2 table
+	Version           uint16
+	TypoAscender      int16
+	TypoDescender     int16
+	TypoLineGap       int16
+	WinAscent         uint16
+	WinDescent        uint16
+	HasTypoWinMetrics bool  // true if TypoAscender..WinDescent are from the source table, not absent-and-zero
+	XHeight           int16 // sxHeight; only defined for Version >= 2, else 0
+	CapHeight         int16 // sCapHeight; only defined for Version >= 2, else 0
+	UseTypoMetrics    bool  // fsSelection bit 7, see doc comment above
+	Present           bool  // false if the font has no OS/2 table
 }
 
 // HheaMetrics exposes the hhea table fields most relevant to line-layout.
@@ -63,24 +69,28 @@ func (f *Font) OS2Metrics() OS2Metrics {
 	}
 	o := f.font.os2
 	m := OS2Metrics{
-		Version:        o.version,
-		TypoAscender:   o.sTypoAscender,
-		TypoDescender:  o.sTypoDescender,
-		TypoLineGap:    o.sTypoLineGap,
-		WinAscent:      o.usWinAscent,
-		WinDescent:     o.usWinDescent,
-		UseTypoMetrics: o.version >= 4 && (o.fsSelection&0x0080) != 0, // bit 7, defined from v4
-		Present:        true,
+		Version:           o.version,
+		HasTypoWinMetrics: o.hasTypoWinMetrics(),
+		Present:           true,
 	}
-	if o.version >= 2 {
+	if m.HasTypoWinMetrics {
+		m.TypoAscender = o.sTypoAscender
+		m.TypoDescender = o.sTypoDescender
+		m.TypoLineGap = o.sTypoLineGap
+		m.WinAscent = o.usWinAscent
+		m.WinDescent = o.usWinDescent
+		// bit 7, defined from v4 onward, and only meaningful when the typo
+		// fields it refers to are actually present (see doc comment).
+		m.UseTypoMetrics = o.version >= 4 && (o.fsSelection&0x0080) != 0
+	}
+	if o.hasV2Metrics() {
 		m.XHeight = o.sxHeight
 		m.CapHeight = o.sCapHeight
 	}
 	return m
 }
 
-// HheaMetrics returns the hhea table metrics. Present is false if the font
-// lacks an hhea table.
+// HheaMetrics returns the hhea table metrics; see the Present field comment.
 func (f *Font) HheaMetrics() HheaMetrics {
 	if f.font.hhea == nil {
 		return HheaMetrics{}

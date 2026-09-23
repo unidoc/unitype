@@ -6,11 +6,37 @@
 package unitype
 
 import (
+	"bytes"
+
 	"github.com/sirupsen/logrus"
+)
+
+// OS/2 table lengths in bytes, by the fields present at each version, per
+// https://learn.microsoft.com/en-us/typography/opentype/spec/os2 . Version 0
+// has two historical lengths: Apple's original TrueType table ends at
+// usLastCharIndex (68 bytes); the Microsoft/OpenType version adds
+// sTypoAscender..usWinDescent (78 bytes). Versions 1, 2-4 and 5 each add a
+// further fixed block on top of the previous version's fields.
+const (
+	os2LenV0Apple     = 68
+	os2LenV0Microsoft = 78
+	os2LenV1          = 86
+	os2LenV2to4       = 96
+	os2LenV5          = 100
 )
 
 // os2Table represents the OS/2 metrics table. It consists of metrics and other data that are required.
 type os2Table struct {
+	// length is the table record's declared byte length as parsed (or, for a
+	// table built programmatically rather than parsed, the length writeOS2
+	// would produce for the fields actually populated). It records how far
+	// into the version's full field layout the source data actually went,
+	// so a table that claims a version but was truncated before that
+	// version's fields end can be told apart from a genuine short table of
+	// an earlier version. Never read directly by callers - use
+	// hasTypoWinMetrics()/hasV2Metrics()/hasV5Metrics().
+	length uint32
+
 	// Version 0+
 	version             uint16
 	xAvgCharWidth       int16
@@ -59,6 +85,42 @@ type os2Table struct {
 	usUpperOpticalPointSize uint16
 }
 
+// hasTypoWinMetrics reports whether sTypoAscender/sTypoDescender/
+// sTypoLineGap/usWinAscent/usWinDescent were actually present in the source
+// data (length >= os2LenV0Microsoft), as opposed to being zero because the
+// table was a short Apple-style version 0 table.
+func (t *os2Table) hasTypoWinMetrics() bool {
+	return t.length >= os2LenV0Microsoft
+}
+
+// hasV2Metrics reports whether sxHeight/sCapHeight/usDefaultChar/
+// usBreakChar/usMaxContext were actually present in the source data.
+func (t *os2Table) hasV2Metrics() bool {
+	return t.length >= os2LenV2to4
+}
+
+// hasV5Metrics reports whether usLowerOpticalPointSize/
+// usUpperOpticalPointSize were actually present in the source data.
+func (t *os2Table) hasV5Metrics() bool {
+	return t.length >= os2LenV5
+}
+
+// os2MaxTableLen bounds the buffer parseOS2Table allocates for a table
+// record's declared length: no defined OS/2 version needs more than
+// os2LenV5 (100) bytes, so a much larger declared length can only be a
+// corrupt or adversarial table record - reject it rather than allocate
+// whatever size the file claims.
+const os2MaxTableLen = 1024
+
+// parseOS2Table parses the OS/2 table. Every read is bounded to the table
+// record's declared length: `r` is read into a fixed buffer once and parsed
+// from that buffer, rather than the shared file-wide byteReader, specifically
+// so a truncated table (short v0, or a table that claims a version but was
+// cut off before that version's fields end) cannot read past its own bytes
+// into whatever table happens to follow OS/2 in the file. A short read
+// leaves the fields for versions/blocks beyond that point at zero; callers
+// distinguish "absent because truncated" from "present and legitimately
+// zero" via hasTypoWinMetrics/hasV2Metrics/hasV5Metrics.
 func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 	tr, has, err := f.seekToTable(r, "OS/2")
 	if err != nil {
@@ -68,9 +130,23 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		logrus.Debug("OS/2 table not present")
 		return nil, nil
 	}
+	if tr.length < os2LenV0Apple {
+		logrus.Debug("OS/2 table shorter than the minimum defined length")
+		return nil, errRangeCheck
+	}
+	if tr.length > os2MaxTableLen {
+		logrus.Debug("OS/2 table length range error")
+		return nil, errRangeCheck
+	}
 
-	t := &os2Table{}
-	err = r.read(&t.version, &t.xAvgCharWidth, &t.usWeightClass, &t.usWidthClass, &t.fsType)
+	var buf []byte
+	if err := r.readBytes(&buf, int(tr.length)); err != nil {
+		return nil, err
+	}
+	br := newByteReader(bytes.NewReader(buf))
+
+	t := &os2Table{length: tr.length}
+	err = br.read(&t.version, &t.xAvgCharWidth, &t.usWeightClass, &t.usWidthClass, &t.fsType)
 	if err != nil {
 		return nil, err
 	}
@@ -80,76 +156,63 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		return nil, errRangeCheck
 	}
 
-	err = r.read(&t.ySubscriptXSize, &t.ySubscriptYSize, &t.ySubscriptXOffset, &t.ySubscriptYOffset)
+	err = br.read(&t.ySubscriptXSize, &t.ySubscriptYSize, &t.ySubscriptXOffset, &t.ySubscriptYOffset)
 	if err != nil {
 		return nil, err
 	}
 
-	err = r.read(&t.ySuperscriptXSize, &t.ySuperscriptYSize, &t.ySuperscriptXOffset, &t.ySuperscriptYOffset)
+	err = br.read(&t.ySuperscriptXSize, &t.ySuperscriptYSize, &t.ySuperscriptXOffset, &t.ySuperscriptYOffset)
 	if err != nil {
 		return nil, err
 	}
 
-	err = r.read(&t.yStrikeoutSize, &t.yStrikeoutPosition, &t.sFamilyClass)
+	err = br.read(&t.yStrikeoutSize, &t.yStrikeoutPosition, &t.sFamilyClass)
 	if err != nil {
 		return nil, err
 	}
 
-	err = r.readSlice(&t.panose10, 10)
+	err = br.readSlice(&t.panose10, 10)
 	if err != nil {
 		return nil, err
 	}
 
-	err = r.read(&t.ulUnicodeRange1, &t.ulUnicodeRange2, &t.ulUnicodeRange3, &t.ulUnicodeRange4)
+	err = br.read(&t.ulUnicodeRange1, &t.ulUnicodeRange2, &t.ulUnicodeRange3, &t.ulUnicodeRange4)
 	if err != nil {
 		return nil, err
 	}
-	err = r.read(&t.achVendID, &t.fsSelection, &t.usFirstCharIndex, &t.usLastCharIndex)
+	err = br.read(&t.achVendID, &t.fsSelection, &t.usFirstCharIndex, &t.usLastCharIndex)
 	if err != nil {
 		return nil, err
 	}
 
-	// Apple's original TrueType OS/2 v0 table is 68 bytes and ends here, before
-	// sTypoAscender. The 78-byte v0 table (Microsoft/OpenType) adds the five
-	// fields below. byteReader has no table-boundary check of its own, so a
-	// short table's sTypoAscender..usWinDescent would otherwise be read from
-	// whatever bytes follow OS/2 in the file. Leave them at zero (the same
-	// "unavailable" convention OS2Metrics already uses for pre-v2 XHeight)
-	// rather than read past the table record's declared length.
-	// https://learn.microsoft.com/en-us/typography/opentype/spec/os2#version-0
-	if tr.length < 78 {
+	if !t.hasTypoWinMetrics() {
 		return t, nil
 	}
-
-	err = r.read(&t.sTypoAscender, &t.sTypoDescender, &t.sTypoLineGap, &t.usWinAscent, &t.usWinDescent)
+	err = br.read(&t.sTypoAscender, &t.sTypoDescender, &t.sTypoLineGap, &t.usWinAscent, &t.usWinDescent)
 	if err != nil {
 		return nil, err
 	}
 
-	if t.version == 0 {
+	if tr.length < os2LenV1 {
 		return t, nil
 	}
-
-	// version >= 1.
-	err = r.read(&t.ulCodePageRange1, &t.ulCodePageRange2)
+	err = br.read(&t.ulCodePageRange1, &t.ulCodePageRange2)
 	if err != nil {
 		return nil, err
 	}
-	if t.version == 1 {
+
+	if !t.hasV2Metrics() {
 		return t, nil
 	}
-
-	// version 2-5.
-	err = r.read(&t.sxHeight, &t.sCapHeight, &t.usDefaultChar, &t.usBreakChar, &t.usMaxContext)
+	err = br.read(&t.sxHeight, &t.sCapHeight, &t.usDefaultChar, &t.usBreakChar, &t.usMaxContext)
 	if err != nil {
 		return nil, err
 	}
-	if t.version < 5 {
+
+	if !t.hasV5Metrics() {
 		return t, nil
 	}
-
-	// version >= 5.
-	err = r.read(&t.usLowerOpticalPointSize, &t.usUpperOpticalPointSize)
+	err = br.read(&t.usLowerOpticalPointSize, &t.usUpperOpticalPointSize)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +220,13 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 	return t, nil
 }
 
+// writeOS2 mirrors parseOS2Table's truncation: it stops writing at the same
+// boundary the source table was actually parsed to (hasTypoWinMetrics/
+// hasV2Metrics/hasV5Metrics), not just t.version. Without this, parsing a
+// short (68-byte) v0 table - which leaves sTypoAscender..usWinDescent at
+// zero because they were never in the source - and then writing it back out
+// would silently fabricate a 78-byte table with usWinAscent/usWinDescent = 0,
+// which is a real (not absent) value renderers use to clip glyphs.
 func (f *font) writeOS2(w *byteWriter) error {
 	if f.os2 == nil {
 		return nil
@@ -192,37 +262,41 @@ func (f *font) writeOS2(w *byteWriter) error {
 	if err != nil {
 		return err
 	}
-	err = w.write(t.achVendID, t.fsSelection, t.usFirstCharIndex, t.usLastCharIndex, t.sTypoAscender)
-	if err != nil {
-		return err
-	}
-	err = w.write(t.sTypoDescender, t.sTypoLineGap, t.usWinAscent, t.usWinDescent)
+	err = w.write(t.achVendID, t.fsSelection, t.usFirstCharIndex, t.usLastCharIndex)
 	if err != nil {
 		return err
 	}
 
-	if t.version == 0 {
+	// A zero-value os2Table (length never set, e.g. built programmatically
+	// rather than parsed) has length 0, which is < os2LenV0Microsoft - write
+	// it as a short v0 table rather than silently promoting it to full v0,
+	// matching parseOS2Table's own "absent, not zero" semantics.
+	if !t.hasTypoWinMetrics() {
 		return nil
 	}
+	err = w.write(t.sTypoAscender, t.sTypoDescender, t.sTypoLineGap, t.usWinAscent, t.usWinDescent)
+	if err != nil {
+		return err
+	}
 
-	// version >= 1.
+	if t.length < os2LenV1 {
+		return nil
+	}
 	err = w.write(t.ulCodePageRange1, t.ulCodePageRange2)
 	if err != nil {
 		return err
 	}
-	if t.version == 1 {
+
+	if !t.hasV2Metrics() {
 		return nil
 	}
-
-	// version 2-5.
 	err = w.write(t.sxHeight, t.sCapHeight, t.usDefaultChar, t.usBreakChar, t.usMaxContext)
 	if err != nil {
 		return err
 	}
-	if t.version < 5 {
+
+	if !t.hasV5Metrics() {
 		return nil
 	}
-
-	// version >= 5.
 	return w.write(t.usLowerOpticalPointSize, t.usUpperOpticalPointSize)
 }
