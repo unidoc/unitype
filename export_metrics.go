@@ -48,7 +48,11 @@ type HheaMetrics struct {
 	Ascender  int16
 	Descender int16
 	LineGap   int16
-	Present   bool
+	// Present is always true for a Font returned by Parse/ParseFile: hhea is
+	// a required table and parsing already fails before construction if it
+	// is missing. It is false only for a Font hand-constructed without going
+	// through Parse (as some white-box tests in this package do).
+	Present bool
 }
 
 // OS2Metrics returns the OS/2 table metrics. Present is false if the font
@@ -99,7 +103,10 @@ func (f *Font) UnitsPerEm() uint16 {
 	return f.font.head.unitsPerEm
 }
 
-// NumGlyphs returns the total number of glyphs in the font.
+// NumGlyphs returns the total number of glyphs in the font. Returns 0 if the
+// maxp table is missing; for a Font from Parse/ParseFile this cannot happen
+// (maxp is required and parsing fails first) - the nil check only guards a
+// Font hand-constructed without going through Parse.
 func (f *Font) NumGlyphs() int {
 	if f.font.maxp == nil {
 		return 0
