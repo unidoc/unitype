@@ -175,3 +175,28 @@ func TestParseHmtx_AcceptsExactLength(t *testing.T) {
 	assert.Len(t, table.hMetrics, 3)
 	assert.Len(t, table.leftSideBearings, 2)
 }
+
+// TestParseHmtx_ClampsShortLeftSideBearings: unlike a short hMetrics block
+// (which has no defined fallback and is rejected outright), a table record
+// that has every hMetric entry but falls short on the trailing
+// leftSideBearings array must clamp rather than reject - those glyphs simply
+// have no explicit left-side-bearing, which is no worse than any font that
+// omits hmtx entirely.
+func TestParseHmtx_ClampsShortLeftSideBearings(t *testing.T) {
+	f := &font{
+		maxp: &maxpTable{numGlyphs: 5},
+		hhea: &hheaTable{numberOfHMetrics: 3},
+		trec: &tableRecords{
+			trMap: map[string]*tableRecord{
+				// 3*4 = 12 bytes for hMetrics, only 2 bytes left over for
+				// the 2 implied trailing lsb entries (2*2 = 4 bytes wanted).
+				"hmtx": {offset: 0, length: 14},
+			},
+		},
+	}
+	data := bytes.Repeat([]byte{0x00}, 14)
+	table, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	require.NoError(t, err)
+	assert.Len(t, table.hMetrics, 3, "hMetrics must be complete even when lsb is clamped")
+	assert.Len(t, table.leftSideBearings, 1, "leftSideBearings must clamp to what the declared length actually fits")
+}
