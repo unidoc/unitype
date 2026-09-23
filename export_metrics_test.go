@@ -23,9 +23,11 @@ func TestRobotoMetrics(t *testing.T) {
 	t.Run("OS2Metrics", func(t *testing.T) {
 		m := f.OS2Metrics()
 		assert.True(t, m.Present, "Roboto should have OS/2 table")
-		// Roboto design is 2048 UPEM, typical sTypo values are around
-		// +1900 ascender / -500 descender. We don't want to hard-code exact
-		// numbers (font may be updated), just assert ballpark positivity/sign.
+		// TypoAscender/TypoDescender/TypoLineGap/WinAscent/WinDescent are
+		// asserted by sign/range rather than exact value, unlike XHeight/
+		// CapHeight/UseTypoMetrics below - those three are pinned because the
+		// version gates being tested need one committed binary's exact
+		// values, not because these can't also be pinned.
 		assert.Greater(t, m.TypoAscender, int16(0))
 		assert.Less(t, m.TypoDescender, int16(0))
 		assert.GreaterOrEqual(t, m.TypoLineGap, int16(0))
