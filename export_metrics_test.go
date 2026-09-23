@@ -72,18 +72,21 @@ func TestRobotoMetrics(t *testing.T) {
 		invalid := GlyphIndex(f.NumGlyphs())
 		_, ok := f.GlyphAdvance(invalid)
 		assert.False(t, ok, "GID at NumGlyphs() is out of range")
-		_, ok = f.GlyphAdvance(invalid + 1000)
+
+		// GlyphIndex is uint16: invalid+1000 would wrap past 0xFFFF back into
+		// valid gid space for a font with more than 64535 glyphs. Use the max
+		// representable GID instead of an offset, guarded so the test itself
+		// stays correct if a future bundled font ever gets that large.
+		require.Less(t, f.NumGlyphs(), 0xFFFF, "test assumes NumGlyphs() leaves room below the GlyphIndex max")
+		_, ok = f.GlyphAdvance(GlyphIndex(0xFFFF))
 		assert.False(t, ok, "far out-of-range GID must also report not-ok")
 	})
 }
 
-// TestOS2Metrics_UseTypoMetricsVersionGate exercises the fsSelection bit 7
-// mask together with the OS/2 version gate: bit 7 (USE_TYPO_METRICS) is only
-// defined from version 4 onward, so a v0-v3 font with the bit set (a
-// reserved field, potentially garbage) must NOT report UseTypoMetrics=true.
-// None of the bundled test fonts have the bit set (Roboto/FreeSans/wts11 all
-// report false), so this needs a synthetic os2Table to cover the mask and
-// the gate at all - white-box (package unitype) for that reason.
+// TestOS2Metrics_UseTypoMetricsVersionGate: UseTypoMetrics honors fsSelection
+// bit 7 only for OS/2 version >= 4; the bit is reserved and ignored below
+// that. White-box (package unitype) to construct a synthetic os2Table, since
+// none of the bundled fonts have the bit set.
 func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
 	newFont := func(version, fsSelection uint16) *Font {
 		return &Font{font: &font{os2: &os2Table{version: version, fsSelection: fsSelection}}}
