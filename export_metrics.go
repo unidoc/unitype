@@ -9,6 +9,16 @@ package unitype
 // Ascender/Descender/LineGap are in font design units (FUnits). Divide by
 // UnitsPerEm to convert to em; multiply by fontSize (px) for pixel values.
 //
+// Version distinguishes "field not defined at this OS/2 version" from "field
+// defined and legitimately zero" for every version-gated field below -
+// callers that need to tell the two apart should check Version themselves;
+// a bare zero value cannot express the difference.
+//
+// TypoAscender/TypoDescender/TypoLineGap/WinAscent/WinDescent read zero if
+// the table is a short (68-byte) Apple-style version 0 OS/2 table, which ends
+// before these fields; Version alone does not distinguish this case from a
+// full-length version 0 table, since both report Version == 0.
+//
 // UseTypoMetrics reports fsSelection bit 7 (USE_TYPO_METRICS). When set, the
 // font author intends sTypoAscender/sTypoDescender/sTypoLineGap to drive
 // line-height rather than the legacy usWinAscent/usWinDescent values returned
@@ -18,13 +28,14 @@ package unitype
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/os2
 type OS2Metrics struct {
+	Version        uint16
 	TypoAscender   int16
 	TypoDescender  int16
 	TypoLineGap    int16
 	WinAscent      uint16
 	WinDescent     uint16
-	XHeight        int16 // sxHeight (OS/2 v2+); 0 if unavailable
-	CapHeight      int16 // sCapHeight (OS/2 v2+); 0 if unavailable
+	XHeight        int16 // sxHeight; only defined for Version >= 2, else 0
+	CapHeight      int16 // sCapHeight; only defined for Version >= 2, else 0
 	UseTypoMetrics bool  // fsSelection bit 7
 	Present        bool  // false if the font has no OS/2 table
 }
@@ -48,6 +59,7 @@ func (f *Font) OS2Metrics() OS2Metrics {
 	}
 	o := f.font.os2
 	m := OS2Metrics{
+		Version:        o.version,
 		TypoAscender:   o.sTypoAscender,
 		TypoDescender:  o.sTypoDescender,
 		TypoLineGap:    o.sTypoLineGap,

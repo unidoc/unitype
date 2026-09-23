@@ -60,7 +60,7 @@ type os2Table struct {
 }
 
 func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
-	_, has, err := f.seekToTable(r, "OS/2")
+	tr, has, err := f.seekToTable(r, "OS/2")
 	if err != nil {
 		return nil, err
 	}
@@ -104,11 +104,24 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = r.read(&t.achVendID, &t.fsSelection, &t.usFirstCharIndex, &t.usLastCharIndex, &t.sTypoAscender)
+	err = r.read(&t.achVendID, &t.fsSelection, &t.usFirstCharIndex, &t.usLastCharIndex)
 	if err != nil {
 		return nil, err
 	}
-	err = r.read(&t.sTypoDescender, &t.sTypoLineGap, &t.usWinAscent, &t.usWinDescent)
+
+	// Apple's original TrueType OS/2 v0 table is 68 bytes and ends here, before
+	// sTypoAscender. The 78-byte v0 table (Microsoft/OpenType) adds the five
+	// fields below. byteReader has no table-boundary check of its own, so a
+	// short table's sTypoAscender..usWinDescent would otherwise be read from
+	// whatever bytes follow OS/2 in the file. Leave them at zero (the same
+	// "unavailable" convention OS2Metrics already uses for pre-v2 XHeight)
+	// rather than read past the table record's declared length.
+	// https://learn.microsoft.com/en-us/typography/opentype/spec/os2#version-0
+	if tr.length < 78 {
+		return t, nil
+	}
+
+	err = r.read(&t.sTypoAscender, &t.sTypoDescender, &t.sTypoLineGap, &t.usWinAscent, &t.usWinDescent)
 	if err != nil {
 		return nil, err
 	}

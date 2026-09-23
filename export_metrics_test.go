@@ -6,6 +6,7 @@
 package unitype
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,6 +96,53 @@ func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
 
 	v4BitClear := newFont(4, 0x0000)
 	assert.False(t, v4BitClear.OS2Metrics().UseTypoMetrics)
+}
+
+// TestParseOS2Table_ShortAppleV0Table covers a genuine Apple-style 68-byte
+// OS/2 version 0 table, which ends before sTypoAscender/sTypoDescender/
+// sTypoLineGap/usWinAscent/usWinDescent (the 78-byte Microsoft/OpenType v0
+// table adds those five fields). Without a table-length check, parseOS2Table
+// would read those fields from whatever bytes follow OS/2 in the file. No
+// bundled test font has a short v0 table, so this constructs one directly:
+// white-box (package unitype) to call parseOS2Table with a synthetic
+// tableRecords + byteReader instead of a real font file.
+func TestParseOS2Table_ShortAppleV0Table(t *testing.T) {
+	// 68 bytes: version=0 then zeros through usLastCharIndex (offset 68),
+	// where a genuine Apple v0 table ends.
+	payload := make([]byte, 68)
+	// Sentinel bytes immediately after the table, standing in for whatever
+	// unrelated table happens to follow OS/2 in a real font file - if
+	// parseOS2Table reads past the table's declared length, it would pick
+	// these up as sTypoAscender/usWinDescent instead of leaving them zero.
+	trailing := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+	data := append(payload, trailing...)
+
+	f := &font{
+		trec: &tableRecords{
+			trMap: map[string]*tableRecord{
+				"OS/2": {offset: 0, length: 68},
+			},
+		},
+	}
+	r := newByteReader(bytes.NewReader(data))
+
+	table, err := f.parseOS2Table(r)
+	require.NoError(t, err)
+	require.NotNil(t, table)
+
+	assert.Equal(t, uint16(0), table.version)
+	assert.Zero(t, table.sTypoAscender, "short v0 table must not read past its declared length")
+	assert.Zero(t, table.sTypoDescender)
+	assert.Zero(t, table.sTypoLineGap)
+	assert.Zero(t, table.usWinAscent)
+	assert.Zero(t, table.usWinDescent)
+
+	f.os2 = table
+	m := (&Font{font: f}).OS2Metrics()
+	assert.True(t, m.Present)
+	assert.Equal(t, uint16(0), m.Version)
+	assert.Zero(t, m.TypoAscender, "OS2Metrics must not surface bytes read past the table boundary")
+	assert.Zero(t, m.WinDescent)
 }
 
 // TestGlyphAdvance_TrailingInheritance covers a VALID gid beyond
