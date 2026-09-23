@@ -32,8 +32,14 @@ type maxpTable struct {
 	maxComponentDepth     uint16
 }
 
+// maxpTableV1Len is maxp's byte size at version 1.0, per
+// https://learn.microsoft.com/en-us/typography/opentype/spec/maxp . Version
+// 0.5 (6 bytes: version+numGlyphs only) is rejected below, so every table
+// this parser accepts commits to the full v1.0 layout.
+const maxpTableV1Len = 32
+
 func (f *font) parseMaxp(r *byteReader) (*maxpTable, error) {
-	_, has, err := f.seekToTable(r, "maxp")
+	tr, has, err := f.seekToTable(r, "maxp")
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +57,10 @@ func (f *font) parseMaxp(r *byteReader) (*maxpTable, error) {
 
 	if t.version < 0x00010000 {
 		logrus.Debug("Range check error")
+		return nil, errRangeCheck
+	}
+	if tr.length < maxpTableV1Len {
+		logrus.Debug("maxp table shorter than the version 1.0 required length")
 		return nil, errRangeCheck
 	}
 

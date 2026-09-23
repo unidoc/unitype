@@ -6,6 +6,7 @@
 package unitype
 
 import (
+	"bytes"
 	"os"
 	"testing"
 
@@ -57,4 +58,23 @@ func TestMaxpTable(t *testing.T) {
 			require.Equal(t, int(tcase.numGlyphs), int(fnt.maxp.numGlyphs))
 		})
 	}
+}
+
+// TestParseMaxp_RejectsShortTable: a maxp table record shorter than the
+// version 1.0 required length (32 bytes) must be rejected rather than read
+// past its own declared length into whatever bytes follow it in the file.
+// White-box (package unitype) since no bundled font has a short maxp table.
+func TestParseMaxp_RejectsShortTable(t *testing.T) {
+	// version=1.0 (0x00010000, big-endian) + numGlyphs, then nothing else -
+	// 6 bytes total, well short of maxpTableV1Len (32).
+	data := append([]byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x05}, bytes.Repeat([]byte{0xFF}, 20)...)
+	f := &font{
+		trec: &tableRecords{
+			trMap: map[string]*tableRecord{
+				"maxp": {offset: 0, length: 6},
+			},
+		},
+	}
+	_, err := f.parseMaxp(newByteReader(bytes.NewReader(data)))
+	assert.ErrorIs(t, err, errRangeCheck)
 }
