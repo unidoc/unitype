@@ -12,7 +12,9 @@ package unitype
 // UseTypoMetrics reports fsSelection bit 7 (USE_TYPO_METRICS). When set, the
 // font author intends sTypoAscender/sTypoDescender/sTypoLineGap to drive
 // line-height rather than the legacy usWinAscent/usWinDescent values returned
-// by many TrueType rasterizers.
+// by many TrueType rasterizers. Bit 7 is only defined from OS/2 version 4
+// onward; in versions 0-3 it is reserved and may hold unrelated data, so this
+// field is always false for those versions regardless of the bit's value.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/os2
 type OS2Metrics struct {
@@ -32,7 +34,7 @@ type OS2Metrics struct {
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/hhea
 type HheaMetrics struct {
-	Ascender int16
+	Ascender  int16
 	Descender int16
 	LineGap   int16
 	Present   bool
@@ -51,7 +53,7 @@ func (f *Font) OS2Metrics() OS2Metrics {
 		TypoLineGap:    o.sTypoLineGap,
 		WinAscent:      o.usWinAscent,
 		WinDescent:     o.usWinDescent,
-		UseTypoMetrics: (o.fsSelection & 0x0080) != 0, // bit 7
+		UseTypoMetrics: o.version >= 4 && (o.fsSelection&0x0080) != 0, // bit 7, defined from v4
 		Present:        true,
 	}
 	if o.version >= 2 {

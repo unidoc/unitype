@@ -26,15 +26,34 @@ func TestOS2Metrics_Roboto(t *testing.T) {
 	assert.GreaterOrEqual(t, m.TypoLineGap, int16(0))
 	assert.Greater(t, m.WinAscent, uint16(0))
 	assert.Greater(t, m.WinDescent, uint16(0))
-	// XHeight/CapHeight/UseTypoMetrics were previously unasserted, so a wrong
-	// version gate (o.version >= 2) or a wrong fsSelection bit mask would pass
-	// silently. Unlike the ascent/descent fields above, these three come
-	// straight from this specific bundled font file rather than "any
-	// reasonable font," so exact values are the right check here (verified
-	// directly against testdata/roboto/Roboto-Regular.ttf, not assumed).
+	// XHeight, CapHeight and UseTypoMetrics come from this specific bundled
+	// font file, so assert exact values rather than sign/range.
 	assert.Equal(t, int16(1082), m.XHeight, "Roboto-Regular sxHeight")
 	assert.Equal(t, int16(1456), m.CapHeight, "Roboto-Regular sCapHeight")
 	assert.False(t, m.UseTypoMetrics, "Roboto-Regular fsSelection bit 7 (USE_TYPO_METRICS) is unset")
+}
+
+// TestOS2Metrics_UseTypoMetricsVersionGate exercises the fsSelection bit 7
+// mask together with the OS/2 version gate: bit 7 (USE_TYPO_METRICS) is only
+// defined from version 4 onward, so a v0-v3 font with the bit set (a
+// reserved field, potentially garbage) must NOT report UseTypoMetrics=true.
+// None of the bundled test fonts have the bit set (Roboto/FreeSans/wts11 all
+// report false), so this needs a synthetic os2Table to cover the mask and
+// the gate at all — white-box (package unitype) for that reason.
+func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
+	newFont := func(version, fsSelection uint16) *Font {
+		return &Font{font: &font{os2: &os2Table{version: version, fsSelection: fsSelection}}}
+	}
+
+	v3BitSet := newFont(3, 0x0080)
+	assert.False(t, v3BitSet.OS2Metrics().UseTypoMetrics,
+		"bit 7 is reserved before v4 and must not be read as USE_TYPO_METRICS")
+
+	v4BitSet := newFont(4, 0x0080)
+	assert.True(t, v4BitSet.OS2Metrics().UseTypoMetrics, "bit 7 is defined from v4 onward")
+
+	v4BitClear := newFont(4, 0x0000)
+	assert.False(t, v4BitClear.OS2Metrics().UseTypoMetrics)
 }
 
 func TestHheaMetrics_Roboto(t *testing.T) {
