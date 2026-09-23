@@ -25,7 +25,7 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		return nil, errRequiredField
 	}
 
-	_, has, err := f.seekToTable(r, "hmtx")
+	tr, has, err := f.seekToTable(r, "hmtx")
 	if err != nil {
 		return nil, err
 	}
@@ -34,9 +34,26 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		return nil, nil
 	}
 
+	// hmtx's size has no length field of its own (implied by hhea/maxp
+	// instead, per the OpenType spec) - reject a table too short for its
+	// hMetrics, but clamp rather than reject a short trailing lsb array.
+	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
+	wantHMetricsLen := 4 * numberOfHMetrics
+	if int(tr.length) < wantHMetricsLen {
+		logrus.Debug("hmtx table shorter than numberOfHMetrics implies")
+		return nil, errRangeCheck
+	}
+
+	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
+	if lsbLen > 0 {
+		if avail := (int(tr.length) - wantHMetricsLen) / 2; lsbLen > avail {
+			logrus.Debug("hmtx leftSideBearings shorter than numGlyphs implies, clamping")
+			lsbLen = avail
+		}
+	}
+
 	t := &hmtxTable{}
 
-	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
 	for i := 0; i < numberOfHMetrics; i++ {
 		var lhm longHorMetric
 		err := r.read(&lhm.advanceWidth, &lhm.lsb)
@@ -47,7 +64,6 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		t.hMetrics = append(t.hMetrics, lhm)
 	}
 
-	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
 	if lsbLen > 0 {
 		err = r.readSlice(&t.leftSideBearings, lsbLen)
 		if err != nil {

@@ -29,14 +29,24 @@ type hheaTable struct {
 	numberOfHMetrics    uint16 // Number of hMetric entries in 'hmtx' table.
 }
 
+// hheaTableLen is hhea's fixed byte size (4 + 6 + 8 + 6 + 8 reserved + 4),
+// per https://learn.microsoft.com/en-us/typography/opentype/spec/hhea . hhea
+// has no version-dependent variation, unlike OS/2.
+const hheaTableLen = 36
+
 func (f *font) parseHhea(r *byteReader) (*hheaTable, error) {
-	_, has, err := f.seekToTable(r, "hhea")
+	tr, has, err := f.seekToTable(r, "hhea")
 	if err != nil {
 		return nil, err
 	}
 	if !has {
 		logrus.Debug("hhea table absent")
 		return nil, nil
+	}
+	if tr.length < hheaTableLen {
+		// Every hhea field is required; a short table has no safe partial read.
+		logrus.Debug("hhea table shorter than the required length")
+		return nil, errRangeCheck
 	}
 
 	t := &hheaTable{}
