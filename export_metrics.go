@@ -114,11 +114,10 @@ func (f *Font) NumGlyphs() int {
 	return int(f.font.maxp.numGlyphs)
 }
 
-// GlyphAdvance returns the horizontal advance width of glyph gid in FUnits,
-// and false for an out-of-range gid or a font with no hmtx table - a bare
-// uint16 could not distinguish that from a real zero-width glyph (combining
-// marks and similar). hmtx stores advance widths only for the first
-// numberOfHMetrics glyphs; trailing glyphs inherit the last advance.
+// GlyphAdvance returns the horizontal advance width of glyph gid in FUnits.
+// ok is false for an out-of-range gid or a font with no hmtx table. hmtx
+// stores advance widths only for the first numberOfHMetrics glyphs; trailing
+// glyphs inherit the last advance.
 func (f *Font) GlyphAdvance(gid GlyphIndex) (uint16, bool) {
 	if f.font.hmtx == nil {
 		return 0, false
