@@ -12,25 +12,66 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOS2Metrics_Roboto(t *testing.T) {
+// TestRobotoMetrics covers OS2Metrics/HheaMetrics/UnitsPerEm/NumGlyphs/
+// GlyphAdvance in one ParseFile of the bundled Roboto-Regular.ttf, since each
+// only reads a few header fields off the same parsed Font.
+func TestRobotoMetrics(t *testing.T) {
 	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
 	require.NoError(t, err)
 
-	m := f.OS2Metrics()
-	assert.True(t, m.Present, "Roboto should have OS/2 table")
-	// Roboto design is 2048 UPEM, typical sTypo values are around
-	// +1900 ascender / -500 descender. We don't want to hard-code exact
-	// numbers (font may be updated), just assert ballpark positivity/sign.
-	assert.Greater(t, m.TypoAscender, int16(0))
-	assert.Less(t, m.TypoDescender, int16(0))
-	assert.GreaterOrEqual(t, m.TypoLineGap, int16(0))
-	assert.Greater(t, m.WinAscent, uint16(0))
-	assert.Greater(t, m.WinDescent, uint16(0))
-	// XHeight, CapHeight and UseTypoMetrics come from this specific bundled
-	// font file, so assert exact values rather than sign/range.
-	assert.Equal(t, int16(1082), m.XHeight, "Roboto-Regular sxHeight")
-	assert.Equal(t, int16(1456), m.CapHeight, "Roboto-Regular sCapHeight")
-	assert.False(t, m.UseTypoMetrics, "Roboto-Regular fsSelection bit 7 (USE_TYPO_METRICS) is unset")
+	t.Run("OS2Metrics", func(t *testing.T) {
+		m := f.OS2Metrics()
+		assert.True(t, m.Present, "Roboto should have OS/2 table")
+		// Roboto design is 2048 UPEM, typical sTypo values are around
+		// +1900 ascender / -500 descender. We don't want to hard-code exact
+		// numbers (font may be updated), just assert ballpark positivity/sign.
+		assert.Greater(t, m.TypoAscender, int16(0))
+		assert.Less(t, m.TypoDescender, int16(0))
+		assert.GreaterOrEqual(t, m.TypoLineGap, int16(0))
+		assert.Greater(t, m.WinAscent, uint16(0))
+		assert.Greater(t, m.WinDescent, uint16(0))
+		// XHeight, CapHeight and UseTypoMetrics come from this specific
+		// bundled font file, so assert exact values rather than sign/range.
+		assert.Equal(t, int16(1082), m.XHeight, "Roboto-Regular sxHeight")
+		assert.Equal(t, int16(1456), m.CapHeight, "Roboto-Regular sCapHeight")
+		assert.False(t, m.UseTypoMetrics, "Roboto-Regular fsSelection bit 7 (USE_TYPO_METRICS) is unset")
+	})
+
+	t.Run("HheaMetrics", func(t *testing.T) {
+		m := f.HheaMetrics()
+		assert.True(t, m.Present, "Roboto should have hhea table")
+		assert.Greater(t, m.Ascender, int16(0))
+		assert.Less(t, m.Descender, int16(0))
+	})
+
+	t.Run("UnitsPerEm", func(t *testing.T) {
+		assert.Equal(t, uint16(2048), f.UnitsPerEm(), "Roboto uses 2048 UPEM")
+	})
+
+	t.Run("NumGlyphs", func(t *testing.T) {
+		assert.Greater(t, f.NumGlyphs(), 100)
+	})
+
+	t.Run("GlyphAdvance", func(t *testing.T) {
+		// Look up glyph for 'A' and verify it has a non-zero advance.
+		gids := f.LookupRunes([]rune{'A'})
+		require.Len(t, gids, 1)
+		require.NotEqual(t, GlyphIndex(0), gids[0], "'A' should resolve to a glyph")
+
+		adv, ok := f.GlyphAdvance(gids[0])
+		assert.True(t, ok)
+		assert.Greater(t, adv, uint16(0), "'A' should have a positive advance")
+	})
+
+	t.Run("GlyphAdvance_OutOfRange", func(t *testing.T) {
+		// A GID at or beyond the font's real glyph count is out of range: ok
+		// must be false, distinguishing it from a real zero-width glyph.
+		invalid := GlyphIndex(f.NumGlyphs())
+		_, ok := f.GlyphAdvance(invalid)
+		assert.False(t, ok, "GID at NumGlyphs() is out of range")
+		_, ok = f.GlyphAdvance(invalid + 1000)
+		assert.False(t, ok, "far out-of-range GID must also report not-ok")
+	})
 }
 
 // TestOS2Metrics_UseTypoMetricsVersionGate exercises the fsSelection bit 7
@@ -39,7 +80,7 @@ func TestOS2Metrics_Roboto(t *testing.T) {
 // reserved field, potentially garbage) must NOT report UseTypoMetrics=true.
 // None of the bundled test fonts have the bit set (Roboto/FreeSans/wts11 all
 // report false), so this needs a synthetic os2Table to cover the mask and
-// the gate at all — white-box (package unitype) for that reason.
+// the gate at all - white-box (package unitype) for that reason.
 func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
 	newFont := func(version, fsSelection uint16) *Font {
 		return &Font{font: &font{os2: &os2Table{version: version, fsSelection: fsSelection}}}
@@ -54,55 +95,6 @@ func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
 
 	v4BitClear := newFont(4, 0x0000)
 	assert.False(t, v4BitClear.OS2Metrics().UseTypoMetrics)
-}
-
-func TestHheaMetrics_Roboto(t *testing.T) {
-	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
-	require.NoError(t, err)
-
-	m := f.HheaMetrics()
-	assert.True(t, m.Present, "Roboto should have hhea table")
-	assert.Greater(t, m.Ascender, int16(0))
-	assert.Less(t, m.Descender, int16(0))
-}
-
-func TestUnitsPerEm_Roboto(t *testing.T) {
-	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
-	require.NoError(t, err)
-	assert.Equal(t, uint16(2048), f.UnitsPerEm(), "Roboto uses 2048 UPEM")
-}
-
-func TestNumGlyphs_Roboto(t *testing.T) {
-	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
-	require.NoError(t, err)
-	assert.Greater(t, f.NumGlyphs(), 100)
-}
-
-func TestGlyphAdvance_Roboto(t *testing.T) {
-	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
-	require.NoError(t, err)
-
-	// Look up glyph for 'A' and verify it has a non-zero advance.
-	gids := f.LookupRunes([]rune{'A'})
-	require.Len(t, gids, 1)
-	require.NotEqual(t, GlyphIndex(0), gids[0], "'A' should resolve to a glyph")
-
-	adv, ok := f.GlyphAdvance(gids[0])
-	assert.True(t, ok)
-	assert.Greater(t, adv, uint16(0), "'A' should have a positive advance")
-}
-
-func TestGlyphAdvance_OutOfRange(t *testing.T) {
-	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
-	require.NoError(t, err)
-
-	// A GID at or beyond the font's real glyph count is out of range: ok must
-	// be false, distinguishing it from a real zero-width glyph.
-	invalid := GlyphIndex(f.NumGlyphs())
-	_, ok := f.GlyphAdvance(invalid)
-	assert.False(t, ok, "GID at NumGlyphs() is out of range")
-	_, ok = f.GlyphAdvance(invalid + 1000)
-	assert.False(t, ok, "far out-of-range GID must also report not-ok")
 }
 
 // TestGlyphAdvance_TrailingInheritance covers a VALID gid beyond

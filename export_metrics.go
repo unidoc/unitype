@@ -43,7 +43,7 @@ type HheaMetrics struct {
 // OS2Metrics returns the OS/2 table metrics. Present is false if the font
 // lacks an OS/2 table (some older TrueType fonts do).
 func (f *Font) OS2Metrics() OS2Metrics {
-	if f.font == nil || f.font.os2 == nil {
+	if f.font.os2 == nil {
 		return OS2Metrics{}
 	}
 	o := f.font.os2
@@ -66,7 +66,7 @@ func (f *Font) OS2Metrics() OS2Metrics {
 // HheaMetrics returns the hhea table metrics. Present is false if the font
 // lacks an hhea table.
 func (f *Font) HheaMetrics() HheaMetrics {
-	if f.font == nil || f.font.hhea == nil {
+	if f.font.hhea == nil {
 		return HheaMetrics{}
 	}
 	h := f.font.hhea
@@ -81,7 +81,7 @@ func (f *Font) HheaMetrics() HheaMetrics {
 // UnitsPerEm returns the font's units-per-em from the head table. Returns 0
 // if the head table is missing (should not happen for a valid font).
 func (f *Font) UnitsPerEm() uint16 {
-	if f.font == nil || f.font.head == nil {
+	if f.font.head == nil {
 		return 0
 	}
 	return f.font.head.unitsPerEm
@@ -89,14 +89,14 @@ func (f *Font) UnitsPerEm() uint16 {
 
 // NumGlyphs returns the total number of glyphs in the font.
 func (f *Font) NumGlyphs() int {
-	if f.font == nil || f.font.maxp == nil {
+	if f.font.maxp == nil {
 		return 0
 	}
 	return int(f.font.maxp.numGlyphs)
 }
 
 // GlyphAdvance returns the horizontal advance width of glyph gid in FUnits,
-// and false for an out-of-range gid or a font with no hmtx table — a bare
+// and false for an out-of-range gid or a font with no hmtx table - a bare
 // uint16 could not distinguish that from a real zero-width glyph (combining
 // marks and similar). hmtx stores advance widths only for the first
 // numberOfHMetrics glyphs; trailing glyphs inherit the last advance.
