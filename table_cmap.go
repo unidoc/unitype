@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/sirupsen/logrus"
 )
@@ -467,6 +468,11 @@ type sequentialMapGroup struct {
 	startGlyphID  uint32 // Glyph index corresponding to the starting character code.
 }
 
+// maxUnicodeCodePoint is the largest Unicode code point. Format 12 maps
+// Unicode, so its mapped groups are limited to it, which also caps the work
+// of expanding them regardless of how many groups a table declares.
+const maxUnicodeCodePoint = 0x10FFFF
+
 func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID int) (*cmapSubtable, error) {
 	st := cmapSubtableFormat12{}
 	err := r.read(&st.reserved, &st.length, &st.language, &st.numGroups)
@@ -492,14 +498,27 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 	runes := make([]rune, f.maxp.numGlyphs)
 	charcodes := make([]CharCode, f.maxp.numGlyphs)
 	charcodeMap := make(map[CharCode]GlyphIndex, f.maxp.numGlyphs)
-	for _, group := range st.groups {
+	groups := append([]sequentialMapGroup(nil), st.groups...)
+	sort.SliceStable(groups, func(i, j int) bool { return groups[i].startCharCode < groups[j].startCharCode })
+	prevEnd := int64(-1)
+	for _, group := range groups {
+		start, end := group.startCharCode, group.endCharCode
+		if end > maxUnicodeCodePoint {
+			end = maxUnicodeCodePoint
+		}
+		if int64(start) <= prevEnd || start > end {
+			logrus.Debugf("cmap format 12 group %d-%d overlaps an earlier group or is beyond U+10FFFF, skipping", group.startCharCode, group.endCharCode)
+			continue
+		}
+		prevEnd = int64(end)
+
 		gid := GlyphIndex(group.startGlyphID)
 		if int(gid) >= int(f.maxp.numGlyphs) {
 			logrus.Debugf("gid >= numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
 			logrus.Debugf("Error: %v", errRangeCheck)
 			return nil, errRangeCheck
 		}
-		for charcode := group.startCharCode; charcode <= group.endCharCode; charcode++ {
+		for charcode := start; charcode <= end; charcode++ {
 			if int(gid) >= int(f.maxp.numGlyphs) {
 				break
 			}
