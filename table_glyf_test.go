@@ -99,7 +99,7 @@ func TestParseGlyf_HugeGlyphLength(t *testing.T) {
 	f := &font{
 		head: &headTable{indexToLocFormat: 1},
 		maxp: &maxpTable{numGlyphs: 1},
-		loca: &locaTable{offsetsLong: []offset32{0, 0xF0000000}},
+		loca: &locaTable{offsetsLong: []offset32{0, 0x70000000}}, // positive as a 32-bit int
 		trec: &tableRecords{trMap: map[string]*tableRecord{"glyf": {offset: 0, length: 0xFFFFFFFF}}},
 	}
 	var before, after runtime.MemStats
