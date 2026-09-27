@@ -115,10 +115,10 @@ const maxBoundedTableLen = 1024
 // length (capped at maxBoundedTableLen) of bytes, fewer if the file ends
 // early. Parsing from these bytes turns any overrun into an EOF instead of a
 // read into the next table. Only for small fixed-layout tables.
-func (f *font) readTableBytes(r *byteReader, tableName string) (buf []byte, tr *tableRecord, has bool, err error) {
-	tr, has, err = f.seekToTable(r, tableName)
+func (f *font) readTableBytes(r *byteReader, tableName string) (buf []byte, has bool, err error) {
+	tr, has, err := f.seekToTable(r, tableName)
 	if err != nil || !has {
-		return nil, tr, has, err
+		return nil, has, err
 	}
 
 	n := maxBoundedTableLen
@@ -128,9 +128,9 @@ func (f *font) readTableBytes(r *byteReader, tableName string) (buf []byte, tr *
 	buf = make([]byte, n)
 	read, err := io.ReadFull(r.reader, buf)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return nil, tr, true, err
+		return nil, true, err
 	}
-	return buf[:read], tr, true, nil
+	return buf[:read], true, nil
 }
 
 func (f *font) writeTableRecords(w *byteWriter) error {

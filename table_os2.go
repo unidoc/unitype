@@ -128,7 +128,7 @@ func (t *os2Table) hasV5Metrics() bool {
 // fields past those bytes stay zero (see the hasXxxMetrics checks). OS/2 is
 // optional, so fewer than os2LenV0Apple bytes is treated as absent.
 func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
-	buf, _, has, err := f.readTableBytes(r, "OS/2")
+	buf, has, err := f.readTableBytes(r, "OS/2")
 	if err != nil {
 		return nil, err
 	}

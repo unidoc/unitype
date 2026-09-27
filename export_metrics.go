@@ -8,8 +8,8 @@ package unitype
 // OS2Metrics exposes the OS/2 table fields most relevant to line-layout, in
 // font design units (FUnits); divide by UnitsPerEm to convert to em.
 //
-// HasTypoWinMetrics is false for a short (68-byte) version 0 table, which
-// ends before the Typo/Win fields; fall back to HheaMetrics in that case.
+// HasTypoWinMetrics is false when the table ends before the Typo/Win fields
+// (e.g. a 68-byte version 0 table); fall back to HheaMetrics in that case.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/os2
 type OS2Metrics struct {

@@ -32,7 +32,7 @@ type hheaTable struct {
 }
 
 func (f *font) parseHhea(fr *byteReader) (*hheaTable, error) {
-	buf, _, has, err := f.readTableBytes(fr, "hhea")
+	buf, has, err := f.readTableBytes(fr, "hhea")
 	if err != nil {
 		return nil, err
 	}

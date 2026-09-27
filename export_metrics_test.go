@@ -225,7 +225,7 @@ func TestParseOS2Table_LengthDegrades(t *testing.T) {
 		length uint32
 	}{
 		{"declared shorter than any defined OS/2 version", 67},
-		{"declared far longer, but no bytes present", 0xFFFFFFFF},
+		{"declared far longer, only 67 bytes present", 0xFFFFFFFF},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

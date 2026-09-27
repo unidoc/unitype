@@ -37,7 +37,7 @@ type headTable struct {
 
 // parse the font's *head* table from `r` in the context of `f`.
 func (f *font) parseHead(fr *byteReader) (*headTable, error) {
-	buf, _, has, err := f.readTableBytes(fr, "head")
+	buf, has, err := f.readTableBytes(fr, "head")
 	if err != nil {
 		return nil, err
 	}

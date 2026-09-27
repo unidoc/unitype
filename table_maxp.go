@@ -35,7 +35,7 @@ type maxpTable struct {
 }
 
 func (f *font) parseMaxp(fr *byteReader) (*maxpTable, error) {
-	buf, _, has, err := f.readTableBytes(fr, "maxp")
+	buf, has, err := f.readTableBytes(fr, "maxp")
 	if err != nil {
 		return nil, err
 	}
