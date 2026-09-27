@@ -131,17 +131,10 @@ func TestOptimizeHmtxTable(t *testing.T) {
 	}
 }
 
-// TestParseHmtx_RejectsLengthMismatch: hmtx has no length field of its own -
-// its size is implied by numberOfHMetrics (hhea) and numGlyphs (maxp). A
-// font where those imply more bytes than the hmtx table record actually
-// declares must be rejected, not silently read past hmtx into whatever
-// bytes follow it in the file. White-box (package unitype): no bundled font
-// has this inconsistency.
+// TestParseHmtx_RejectsLengthMismatch asserts an hmtx record shorter than
+// 4*numberOfHMetrics is rejected rather than read past its end.
 func TestParseHmtx_RejectsLengthMismatch(t *testing.T) {
-	// hhea says 3 hMetrics (3*4=12 bytes) and maxp says 5 glyphs, so 2
-	// trailing lsb entries (2*2=4 bytes) are implied: 16 bytes total. The
-	// table record only declares 10, so parseHmtx must reject rather than
-	// read 6 bytes belonging to whatever follows hmtx in the file.
+	// 3 hMetrics need 12 bytes; the record declares 10.
 	f := &font{
 		maxp: &maxpTable{numGlyphs: 5},
 		hhea: &hheaTable{numberOfHMetrics: 3},
@@ -176,24 +169,25 @@ func TestParseHmtx_AcceptsExactLength(t *testing.T) {
 	assert.Len(t, table.leftSideBearings, 2)
 }
 
-// TestParseHmtx_ClampsShortLeftSideBearings asserts a table record with
-// complete hMetrics but a short trailing leftSideBearings array clamps
-// rather than rejects the whole table.
-func TestParseHmtx_ClampsShortLeftSideBearings(t *testing.T) {
+// TestParseHmtx_PadsShortLeftSideBearings asserts a record with complete
+// hMetrics but a short trailing leftSideBearings array is zero-padded to
+// numGlyphs-numberOfHMetrics entries rather than rejected.
+func TestParseHmtx_PadsShortLeftSideBearings(t *testing.T) {
 	f := &font{
 		maxp: &maxpTable{numGlyphs: 5},
 		hhea: &hheaTable{numberOfHMetrics: 3},
 		trec: &tableRecords{
 			trMap: map[string]*tableRecord{
-				// 3*4 = 12 bytes for hMetrics, only 2 bytes left over for
-				// the 2 implied trailing lsb entries (2*2 = 4 bytes wanted).
+				// 12 bytes of hMetrics, then room for 1 of the 2 lsb entries.
 				"hmtx": {offset: 0, length: 14},
 			},
 		},
 	}
-	data := bytes.Repeat([]byte{0x00}, 14)
+	data := bytes.Repeat([]byte{0xAB}, 32)
 	table, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
 	require.NoError(t, err)
-	assert.Len(t, table.hMetrics, 3, "hMetrics must be complete even when lsb is clamped")
-	assert.Len(t, table.leftSideBearings, 1, "leftSideBearings must clamp to what the declared length actually fits")
+	assert.Len(t, table.hMetrics, 3)
+	require.Len(t, table.leftSideBearings, 2)
+	assert.Equal(t, int16(-21589), table.leftSideBearings[0], "read from the table")
+	assert.Equal(t, int16(0), table.leftSideBearings[1], "padded, not read past the declared length")
 }

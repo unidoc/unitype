@@ -36,7 +36,7 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 
 	// hmtx's size has no length field of its own (implied by hhea/maxp
 	// instead, per the OpenType spec) - reject a table too short for its
-	// hMetrics, but clamp rather than reject a short trailing lsb array.
+	// hMetrics, but zero-pad rather than reject a short trailing lsb array.
 	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
 	wantHMetricsLen := 4 * numberOfHMetrics
 	if int(tr.length) < wantHMetricsLen {
@@ -45,11 +45,10 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 	}
 
 	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
-	if lsbLen > 0 {
-		if avail := (int(tr.length) - wantHMetricsLen) / 2; lsbLen > avail {
-			logrus.Debug("hmtx leftSideBearings shorter than numGlyphs implies, clamping")
-			lsbLen = avail
-		}
+	readLsbLen := lsbLen
+	if avail := (int(tr.length) - wantHMetricsLen) / 2; readLsbLen > avail {
+		logrus.Debug("hmtx leftSideBearings shorter than numGlyphs implies, zero-padding")
+		readLsbLen = avail
 	}
 
 	t := &hmtxTable{}
@@ -64,11 +63,14 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		t.hMetrics = append(t.hMetrics, lhm)
 	}
 
-	if lsbLen > 0 {
-		err = r.readSlice(&t.leftSideBearings, lsbLen)
+	if readLsbLen > 0 {
+		err = r.readSlice(&t.leftSideBearings, readLsbLen)
 		if err != nil {
 			return nil, err
 		}
+	}
+	if lsbLen > readLsbLen {
+		t.leftSideBearings = append(t.leftSideBearings, make([]int16, lsbLen-readLsbLen)...)
 	}
 
 	return t, nil
