@@ -191,3 +191,26 @@ func TestParseHmtx_PadsShortLeftSideBearings(t *testing.T) {
 	assert.Equal(t, int16(-21589), table.leftSideBearings[0], "read from the table")
 	assert.Equal(t, int16(0), table.leftSideBearings[1], "padded, not read past the declared length")
 }
+
+// TestParseHmtx_FileEndsEarly asserts an hmtx whose declared length fits but
+// whose file ends inside the trailing leftSideBearings keeps the entries read
+// and zero-pads the rest, while a file ending inside hMetrics still fails.
+func TestParseHmtx_FileEndsEarly(t *testing.T) {
+	newFont := func() *font {
+		return &font{
+			maxp: &maxpTable{numGlyphs: 5},
+			hhea: &hheaTable{numberOfHMetrics: 3},
+			trec: &tableRecords{trMap: map[string]*tableRecord{"hmtx": {offset: 0, length: 16}}},
+		}
+	}
+
+	// 12 bytes of hMetrics, then one of the two lsb entries, then EOF.
+	table, err := newFont().parseHmtx(newByteReader(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 14))))
+	require.NoError(t, err)
+	require.Len(t, table.leftSideBearings, 2)
+	assert.Equal(t, int16(-21589), table.leftSideBearings[0], "read from the file")
+	assert.Equal(t, int16(0), table.leftSideBearings[1], "padded past the end of the file")
+
+	_, err = newFont().parseHmtx(newByteReader(bytes.NewReader(make([]byte, 10))))
+	assertTruncatedRead(t, err)
+}

@@ -6,6 +6,9 @@
 package unitype
 
 import (
+	"errors"
+	"io"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,7 +39,8 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 
 	// hmtx's size has no length field of its own (implied by hhea/maxp
 	// instead, per the OpenType spec) - reject a table too short for its
-	// hMetrics, but zero-pad rather than reject a short trailing lsb array.
+	// hMetrics, but zero-pad rather than reject a short trailing lsb array,
+	// whether cut short by the declared length or by the end of the file.
 	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
 	wantHMetricsLen := 4 * numberOfHMetrics
 	if int(tr.length) < wantHMetricsLen {
@@ -65,12 +69,12 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 
 	if readLsbLen > 0 {
 		err = r.readSlice(&t.leftSideBearings, readLsbLen)
-		if err != nil {
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, err
 		}
 	}
-	if lsbLen > readLsbLen {
-		t.leftSideBearings = append(t.leftSideBearings, make([]int16, lsbLen-readLsbLen)...)
+	if missing := lsbLen - len(t.leftSideBearings); missing > 0 {
+		t.leftSideBearings = append(t.leftSideBearings, make([]int16, missing)...)
 	}
 
 	return t, nil
