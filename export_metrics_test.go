@@ -220,16 +220,15 @@ func TestOS2_ProgrammaticTableWritesFullVersion(t *testing.T) {
 	assert.Equal(t, int(os2LenV2to4), buf.Len(), "must write the full v4 table, not truncate on an unset length")
 }
 
-// TestParseOS2Table_LengthDegrades asserts a table record shorter than
-// os2LenV0Apple or longer than maxBoundedTableLen parses as absent (nil, nil),
-// not an error.
+// TestParseOS2Table_LengthDegrades asserts an OS/2 record with fewer than
+// os2LenV0Apple bytes present parses as absent (nil, nil), not an error.
 func TestParseOS2Table_LengthDegrades(t *testing.T) {
 	tests := []struct {
 		name   string
 		length uint32
 	}{
-		{"shorter than any defined OS/2 version", 67},
-		{"far beyond any defined OS/2 version", 0xFFFFFFFF},
+		{"declared shorter than any defined OS/2 version", 67},
+		{"declared far longer, but no bytes present", 0xFFFFFFFF},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -240,16 +239,30 @@ func TestParseOS2Table_LengthDegrades(t *testing.T) {
 					},
 				},
 			}
-			table, err := f.parseOS2Table(newByteReader(bytes.NewReader(nil)))
+			table, err := f.parseOS2Table(newByteReader(bytes.NewReader(make([]byte, 67))))
 			require.NoError(t, err)
 			assert.Nil(t, table)
 		})
 	}
 }
 
+// TestParseOS2Table_DeclaredLengthCapped asserts an OS/2 record declared far
+// longer than maxBoundedTableLen parses its first maxBoundedTableLen bytes.
+func TestParseOS2Table_DeclaredLengthCapped(t *testing.T) {
+	f := &font{trec: &tableRecords{trMap: map[string]*tableRecord{"OS/2": {offset: 0, length: 0xFFFFFFFF}}}}
+	payload := make([]byte, maxBoundedTableLen+100)
+	payload[1] = 5 // version 5
+	table, err := f.parseOS2Table(newByteReader(bytes.NewReader(payload)))
+	require.NoError(t, err)
+	require.NotNil(t, table)
+	assert.Equal(t, uint32(maxBoundedTableLen), table.length)
+	assert.True(t, table.hasV5Metrics())
+}
+
 // TestParseOS2Table_FileEndsEarly asserts an OS/2 record whose declared
-// length runs past the end of the file parses the bytes present (and writes
-// back only those), and is absent if fewer than os2LenV0Apple are present.
+// length runs past the end of the file parses the field groups present (and
+// writes back only those), and is absent if fewer than os2LenV0Apple bytes
+// are present.
 func TestParseOS2Table_FileEndsEarly(t *testing.T) {
 	declared := &tableRecords{trMap: map[string]*tableRecord{"OS/2": {offset: 0, length: os2LenV5}}}
 

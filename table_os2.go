@@ -27,9 +27,9 @@ const (
 
 // os2Table represents the OS/2 metrics table. It consists of metrics and other data that are required.
 type os2Table struct {
-	// length is the table record's declared byte length as parsed, or 0 for
-	// a table built programmatically. Never read directly - use
-	// effectiveLength() or the hasXxxMetrics() presence checks.
+	// length is the number of table bytes present when parsed (at most
+	// maxBoundedTableLen), or 0 for a table built in code. Never read
+	// directly - use effectiveLength() or the hasXxxMetrics() checks.
 	length uint32
 
 	// Version 0+
@@ -124,15 +124,11 @@ func (t *os2Table) hasV5Metrics() bool {
 	return t.version >= 5 && t.effectiveLength() >= os2LenV5
 }
 
-// parseOS2Table parses the OS/2 table from the bytes readTableBytes returns,
-// so a truncated table cannot read past its own bytes; callers distinguish
-// "absent because truncated" from "present and legitimately zero" via
-// hasTypoWinMetrics/hasV1Metrics/hasV2Metrics/hasV5Metrics. OS/2 is
-// optional, so a table declared longer than maxBoundedTableLen, or with
-// fewer than os2LenV0Apple bytes present, is treated as absent (and so is
-// not written back by Write) rather than failing the font.
+// parseOS2Table parses the OS/2 table from the bytes readTableBytes returns;
+// fields past those bytes stay zero (see the hasXxxMetrics checks). OS/2 is
+// optional, so fewer than os2LenV0Apple bytes is treated as absent.
 func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
-	buf, tr, has, err := f.readTableBytes(r, "OS/2")
+	buf, _, has, err := f.readTableBytes(r, "OS/2")
 	if err != nil {
 		return nil, err
 	}
@@ -140,8 +136,8 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		logrus.Debug("OS/2 table not present")
 		return nil, nil
 	}
-	if tr.length > maxBoundedTableLen || len(buf) < os2LenV0Apple {
-		logrus.Debug("OS/2 table too short or too long for any defined version, treating as absent")
+	if len(buf) < os2LenV0Apple {
+		logrus.Debug("OS/2 table shorter than any defined version, treating as absent")
 		return nil, nil
 	}
 	br := newByteReader(bytes.NewReader(buf))
