@@ -310,8 +310,7 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 			logrus.Tracef("Charcode:GID - %d:%d", c, gid)
 
 			if gid > 0 {
-				b := runeDecoder.ToBytes(uint32(c))
-				r := runeDecoder.DecodeRune(b)
+				r := runeDecoder.decodeCharcode(uint32(c))
 				if int(gid) >= int(f.maxp.numGlyphs) {
 					logrus.Debugf("ERROR: gid > numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
 					return nil, errors.New("gid out of range")
@@ -412,8 +411,7 @@ func (f *font) parseCmapSubtableFormat6(r *byteReader, platformID, encodingID in
 	for i := 0; i < int(st.entryCount); i++ {
 		gid := GlyphIndex(st.glyphIDArray[i])
 		code := st.firstCode + uint16(i)
-		b := runeDecoder.ToBytes(uint32(code))
-		r := runeDecoder.DecodeRune(b)
+		r := runeDecoder.decodeCharcode(uint32(code))
 		runes[i] = r
 		charcodes[i] = CharCode(code)
 		charcodeMap[CharCode(code)] = gid
@@ -503,8 +501,7 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 			if int(gid) >= int(f.maxp.numGlyphs) {
 				break
 			}
-			b := runeDecoder.ToBytes(charcode)
-			r := runeDecoder.DecodeRune(b)
+			r := runeDecoder.decodeCharcode(charcode)
 			runes[gid] = r
 			charcodes[gid] = CharCode(charcode)
 			charcodeMap[CharCode(charcode)] = gid
