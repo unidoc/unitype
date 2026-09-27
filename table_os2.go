@@ -124,21 +124,15 @@ func (t *os2Table) hasV5Metrics() bool {
 	return t.version >= 5 && t.effectiveLength() >= os2LenV5
 }
 
-// os2MaxTableLen bounds the buffer parseOS2Table allocates for a table
-// record's declared length: no defined OS/2 version needs more than
-// os2LenV5 (100) bytes, so a much larger declared length can only be a
-// corrupt or adversarial table record - treat it as absent rather than
-// allocate whatever size the file claims.
-const os2MaxTableLen = 1024
-
-// parseOS2Table parses the OS/2 table. `r` is read into a fixed buffer sized
-// to the table record's declared length and parsed from that buffer, so a
-// truncated table cannot read past its own bytes into whatever table follows
-// OS/2 in the file; callers distinguish "absent because truncated" from
-// "present and legitimately zero" via hasTypoWinMetrics/hasV1Metrics/
-// hasV2Metrics/hasV5Metrics.
+// parseOS2Table parses the OS/2 table from the bytes readTableBytes returns,
+// so a truncated table cannot read past its own bytes; callers distinguish
+// "absent because truncated" from "present and legitimately zero" via
+// hasTypoWinMetrics/hasV1Metrics/hasV2Metrics/hasV5Metrics. OS/2 is
+// optional, so a table declared longer than maxBoundedTableLen, or with
+// fewer than os2LenV0Apple bytes present, is treated as absent (and so is
+// not written back by Write) rather than failing the font.
 func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
-	tr, has, err := f.seekToTable(r, "OS/2")
+	buf, tr, has, err := f.readTableBytes(r, "OS/2")
 	if err != nil {
 		return nil, err
 	}
@@ -146,22 +140,13 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		logrus.Debug("OS/2 table not present")
 		return nil, nil
 	}
-	// OS/2 is optional (the !has branch above already treats its absence as
-	// fine), so a table whose declared length can't possibly hold any
-	// defined version degrades the same way: log and report it as absent
-	// rather than failing the whole font over one malformed optional table.
-	if tr.length < os2LenV0Apple || tr.length > os2MaxTableLen {
-		logrus.Debug("OS/2 table length outside any defined version's range, treating as absent")
+	if tr.length > maxBoundedTableLen || len(buf) < os2LenV0Apple {
+		logrus.Debug("OS/2 table too short or too long for any defined version, treating as absent")
 		return nil, nil
-	}
-
-	var buf []byte
-	if err := r.readBytes(&buf, int(tr.length)); err != nil {
-		return nil, err
 	}
 	br := newByteReader(bytes.NewReader(buf))
 
-	t := &os2Table{length: tr.length}
+	t := &os2Table{length: uint32(len(buf))}
 	err = br.read(&t.version, &t.xAvgCharWidth, &t.usWeightClass, &t.usWidthClass, &t.fsType)
 	if err != nil {
 		return nil, err

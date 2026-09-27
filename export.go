@@ -562,7 +562,9 @@ func (f *Font) Optimize() error {
 	return nil
 }
 
-// Write writes the font to `w`.
+// Write writes the font to `w`. An OS/2 table that was treated as absent on
+// parse (declared longer than any version allows, or fewer than 68 bytes
+// present) is not written.
 func (f *Font) Write(w io.Writer) error {
 	bw := newByteWriter(w)
 	err := f.font.write(bw)

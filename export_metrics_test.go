@@ -238,7 +238,7 @@ func TestOS2_ProgrammaticTableWritesFullVersion(t *testing.T) {
 }
 
 // TestParseOS2Table_LengthDegrades asserts a table record shorter than
-// os2LenV0Apple or longer than os2MaxTableLen parses as absent (nil, nil),
+// os2LenV0Apple or longer than maxBoundedTableLen parses as absent (nil, nil),
 // not an error.
 func TestParseOS2Table_LengthDegrades(t *testing.T) {
 	tests := []struct {
@@ -262,6 +262,34 @@ func TestParseOS2Table_LengthDegrades(t *testing.T) {
 			assert.Nil(t, table)
 		})
 	}
+}
+
+// TestParseOS2Table_FileEndsEarly asserts an OS/2 record whose declared
+// length runs past the end of the file parses the bytes present (and writes
+// back only those), and is absent if fewer than os2LenV0Apple are present.
+func TestParseOS2Table_FileEndsEarly(t *testing.T) {
+	declared := &tableRecords{trMap: map[string]*tableRecord{"OS/2": {offset: 0, length: os2LenV5}}}
+
+	f := &font{trec: declared}
+	payload := bytes.Repeat([]byte{0xAB}, 80) // file ends 20 bytes short
+	payload[0], payload[1] = 0, 4             // version 4
+	table, err := f.parseOS2Table(newByteReader(bytes.NewReader(payload)))
+	require.NoError(t, err)
+	require.NotNil(t, table)
+	assert.True(t, table.hasTypoWinMetrics())
+	assert.False(t, table.hasV1Metrics())
+
+	var buf bytes.Buffer
+	w := newByteWriter(&buf)
+	f.os2 = table
+	require.NoError(t, f.writeOS2(w))
+	require.NoError(t, w.flush())
+	assert.Equal(t, int(os2LenV0Microsoft), buf.Len())
+
+	short := &font{trec: declared}
+	table, err = short.parseOS2Table(newByteReader(bytes.NewReader(make([]byte, os2LenV0Apple-1))))
+	require.NoError(t, err)
+	assert.Nil(t, table)
 }
 
 // TestGlyphAdvance_TrailingInheritance covers a VALID gid beyond
