@@ -60,21 +60,21 @@ func TestMaxpTable(t *testing.T) {
 	}
 }
 
-// TestParseMaxp_RejectsShortTable: a maxp table record shorter than the
-// version 1.0 required length (32 bytes) must be rejected rather than read
-// past its own declared length into whatever bytes follow it in the file.
-// White-box (package unitype) since no bundled font has a short maxp table.
+// TestParseMaxp_RejectsShortTable asserts a maxp record shorter than its
+// fields fails rather than reading the bytes after it, including one too
+// short for numGlyphs.
 func TestParseMaxp_RejectsShortTable(t *testing.T) {
-	// version=1.0 (0x00010000, big-endian) + numGlyphs, then nothing else -
-	// 6 bytes total, well short of maxpTableV1Len (32).
-	data := append([]byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x05}, bytes.Repeat([]byte{0xFF}, 20)...)
-	f := &font{
-		trec: &tableRecords{
-			trMap: map[string]*tableRecord{
-				"maxp": {offset: 0, length: 6},
+	// version=1.0 (0x00010000, big-endian) + numGlyphs=5, then sentinel bytes.
+	data := append([]byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x05}, bytes.Repeat([]byte{0xFF}, 40)...)
+	for _, length := range []uint32{4, 6} {
+		f := &font{
+			trec: &tableRecords{
+				trMap: map[string]*tableRecord{
+					"maxp": {offset: 0, length: length},
+				},
 			},
-		},
+		}
+		_, err := f.parseMaxp(newByteReader(bytes.NewReader(data)))
+		assertTruncatedRead(t, err)
 	}
-	_, err := f.parseMaxp(newByteReader(bytes.NewReader(data)))
-	assert.ErrorIs(t, err, errRangeCheck)
 }

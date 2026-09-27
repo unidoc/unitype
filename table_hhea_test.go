@@ -8,16 +8,10 @@ package unitype
 import (
 	"bytes"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
-// TestParseHhea_RejectsShortTable: an hhea table record shorter than its
-// fixed required length (36 bytes) must be rejected rather than read past
-// its own declared length into whatever bytes follow it in the file - a
-// garbage numberOfHMetrics from doing so would propagate straight into
-// parseHmtx's own length check. White-box (package unitype) since no
-// bundled font has a short hhea table.
+// TestParseHhea_RejectsShortTable asserts an hhea record shorter than 36
+// bytes fails rather than reading the bytes after it.
 func TestParseHhea_RejectsShortTable(t *testing.T) {
 	data := append(make([]byte, 10), bytes.Repeat([]byte{0xFF}, 20)...)
 	f := &font{
@@ -28,5 +22,5 @@ func TestParseHhea_RejectsShortTable(t *testing.T) {
 		},
 	}
 	_, err := f.parseHhea(newByteReader(bytes.NewReader(data)))
-	assert.ErrorIs(t, err, errRangeCheck)
+	assertTruncatedRead(t, err)
 }

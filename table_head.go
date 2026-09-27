@@ -6,6 +6,7 @@
 package unitype
 
 import (
+	"bytes"
 	"errors"
 
 	"github.com/sirupsen/logrus"
@@ -34,14 +35,9 @@ type headTable struct {
 	glyphDataFormat    int16
 }
 
-// headTableLen is head's fixed byte size, per
-// https://learn.microsoft.com/en-us/typography/opentype/spec/head .
-const headTableLen = 54
-
 // parse the font's *head* table from `r` in the context of `f`.
-// TODO(gunnsth): Read the table as bytes first and then process? Probably easier in terms of checksumming etc.
-func (f *font) parseHead(r *byteReader) (*headTable, error) {
-	tr, has, err := f.seekToTable(r, "head")
+func (f *font) parseHead(fr *byteReader) (*headTable, error) {
+	buf, _, has, err := f.readTableBytes(fr, "head")
 	if err != nil {
 		return nil, err
 	}
@@ -49,10 +45,7 @@ func (f *font) parseHead(r *byteReader) (*headTable, error) {
 		// Does not have head.
 		return nil, nil
 	}
-	if tr.length < headTableLen {
-		logrus.Debug("head table shorter than the required length")
-		return nil, errRangeCheck
-	}
+	r := newByteReader(bytes.NewReader(buf))
 
 	t := &headTable{}
 	err = r.read(&t.majorVersion, &t.minorVersion, &t.fontRevision)
