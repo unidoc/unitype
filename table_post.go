@@ -123,7 +123,7 @@ func (f *font) parsePost(r *byteReader) (*postTable, error) {
 				logrus.Debugf("%d > %d", r.Offset()-start, tr.length)
 				return nil, errors.New("reading outside table")
 			}
-			var numChars int8
+			var numChars uint8
 			err = r.read(&numChars)
 			if err != nil {
 				return nil, err
