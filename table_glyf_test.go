@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,4 +91,21 @@ func TestParseGlyf_MalformedLoca(t *testing.T) {
 	}
 	_, err := f.parseGlyf(newByteReader(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 64))))
 	assert.ErrorIs(t, err, errRangeCheck)
+}
+
+// TestParseGlyf_HugeGlyphLength asserts a loca range far longer than the
+// input fails without allocating that length.
+func TestParseGlyf_HugeGlyphLength(t *testing.T) {
+	f := &font{
+		head: &headTable{indexToLocFormat: 1},
+		maxp: &maxpTable{numGlyphs: 1},
+		loca: &locaTable{offsetsLong: []offset32{0, 0xF0000000}},
+		trec: &tableRecords{trMap: map[string]*tableRecord{"glyf": {offset: 0, length: 0xFFFFFFFF}}},
+	}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := f.parseGlyf(newByteReader(bytes.NewReader(make([]byte, 64))))
+	runtime.ReadMemStats(&after)
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), "must not allocate the claimed length")
 }
