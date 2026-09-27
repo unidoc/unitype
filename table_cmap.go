@@ -36,6 +36,10 @@ type encodingRecord struct {
 	offset     offset32
 }
 
+// maxCmapMappings bounds the codes parseCmap maps across all subtables: room
+// for one full-Unicode format 12 subtable plus one full format 4 subtable.
+const maxCmapMappings = maxUnicodeCodePoint + 1 + 0x10000
+
 func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 	if f.maxp == nil {
 		logrus.Debug("Unable to load cmap: maxp table is nil")
@@ -67,8 +71,30 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 		t.encodingRecords = append(t.encodingRecords, enc)
 	}
 
-	// Process the encoding subtables.
+	// Process the encoding subtables. Records sharing a subtable offset and
+	// rune decoding reuse one parse, and parsing stops once the subtables
+	// parsed so far map more than maxCmapMappings codes.
+	type parsedKey struct {
+		offset   offset32
+		encoding cmapEncoding
+	}
+	parsed := map[parsedKey]*cmapSubtable{}
+	mappings := 0
 	for _, enc := range t.encodingRecords {
+		pk := parsedKey{enc.offset, getCmapEncoding(int(enc.platformID), int(enc.encodingID))}
+		if prev, ok := parsed[pk]; ok {
+			cmap := *prev
+			cmap.platformID, cmap.encodingID = int(enc.platformID), int(enc.encodingID)
+			key := fmt.Sprintf("%d,%d,%d", cmap.format, enc.platformID, enc.encodingID)
+			t.subtables[key] = &cmap
+			t.subtableKeys = append(t.subtableKeys, key)
+			continue
+		}
+		if mappings > maxCmapMappings {
+			logrus.Debugf("cmap subtables already map %d codes, skipping the rest", mappings)
+			break
+		}
+
 		// Seek to the subtable.
 		err = r.SeekTo(int64(tr.offset) + int64(enc.offset))
 		if err != nil {
@@ -102,6 +128,8 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 			return nil, err
 		}
 		if cmap != nil {
+			parsed[pk] = cmap
+			mappings += len(cmap.cmap)
 			key := fmt.Sprintf("%d,%d,%d", format, enc.platformID, enc.encodingID)
 			t.subtables[key] = cmap
 			t.subtableKeys = append(t.subtableKeys, key)

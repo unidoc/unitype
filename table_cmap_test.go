@@ -349,3 +349,76 @@ func TestParseCmapFormat4_PartialOverlap(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[rune]GlyphIndex{'a': 1, 'b': 2, 'c': 3, 'd': 9}, st.cmap)
 }
+
+// cmapTableBytes encodes a cmap table whose encoding records, given as
+// {platformID, encodingID, subtable index}, point at the format 12 subtables.
+func cmapTableBytes(records [][3]uint16, subtables ...[]byte) []byte {
+	var buf bytes.Buffer
+	w := func(v interface{}) { _ = binary.Write(&buf, binary.BigEndian, v) }
+	w([]uint16{0, uint16(len(records))})
+	offsets := make([]uint32, len(subtables))
+	next := uint32(4 + 8*len(records))
+	for i, st := range subtables {
+		offsets[i] = next
+		next += 2 + uint32(len(st))
+	}
+	for _, rec := range records {
+		w([]uint16{rec[0], rec[1]})
+		w(offsets[rec[2]])
+	}
+	for _, st := range subtables {
+		w(uint16(12))
+		w(st)
+	}
+	return buf.Bytes()
+}
+
+// parseCmapBytes parses data as a font's cmap table.
+func parseCmapBytes(t *testing.T, data []byte, numGlyphs uint16) (*cmapTable, uint64) {
+	t.Helper()
+	f := &font{
+		maxp: &maxpTable{numGlyphs: numGlyphs},
+		trec: &tableRecords{trMap: map[string]*tableRecord{"cmap": {offset: 0, length: uint32(len(data))}}},
+	}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	cmap, err := f.parseCmap(newByteReader(bytes.NewReader(data)))
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	return cmap, after.TotalAlloc - before.TotalAlloc
+}
+
+// wideCmap12 is a format 12 subtable body mapping the whole Unicode range.
+func wideCmap12() []byte {
+	var groups [][3]uint32
+	for start := uint32(0); start <= maxUnicodeCodePoint; start += 0x10000 {
+		groups = append(groups, [3]uint32{start, start + 0xFFFE, 1})
+	}
+	return cmap12Bytes(groups...)
+}
+
+// TestParseCmap_SharedSubtable asserts encoding records pointing at the same
+// subtable with the same rune decoding parse it once, and all stay reachable.
+func TestParseCmap_SharedSubtable(t *testing.T) {
+	var records [][3]uint16
+	for enc := uint16(0); enc < 20; enc++ {
+		records = append(records, [3]uint16{0, enc, 0}) // platform 0: all decode as UCS-2
+	}
+	cmap, alloc := parseCmapBytes(t, cmapTableBytes(records, wideCmap12()), 0xFFFF)
+	assert.Len(t, cmap.subtableKeys, 20)
+	assert.Equal(t, 19, cmap.subtables["12,0,19"].encodingID)
+	assert.Less(t, alloc, uint64(256<<20), "a shared subtable must be parsed once")
+}
+
+// TestParseCmap_TotalMappingsCapped asserts parsing stops once distinct
+// subtables have mapped more than maxCmapMappings codes.
+func TestParseCmap_TotalMappingsCapped(t *testing.T) {
+	var records [][3]uint16
+	var subtables [][]byte
+	for i := uint16(0); i < 5; i++ {
+		records = append(records, [3]uint16{3, 10, i})
+		subtables = append(subtables, wideCmap12())
+	}
+	cmap, _ := parseCmapBytes(t, cmapTableBytes(records, subtables...), 0xFFFF)
+	assert.Len(t, cmap.subtableKeys, 2, "the first subtable fits the cap; the second passes it; the rest are skipped")
+}
