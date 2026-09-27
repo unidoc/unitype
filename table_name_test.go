@@ -6,7 +6,10 @@
 package unitype
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -205,4 +208,38 @@ func TestGetNameRecords(t *testing.T) {
 		assert.Equal(t, tc.numNames, len(nameRecords))
 		assert.Equal(t, tc.expected, nameRecords)
 	}
+}
+
+// TestParseNameTable_OverlappingRecords asserts records that share their
+// string storage are parsed and written without copying it per record.
+func TestParseNameTable_OverlappingRecords(t *testing.T) {
+	const count, strLen = 1000, 60000
+	var buf bytes.Buffer
+	w := func(v interface{}) { _ = binary.Write(&buf, binary.BigEndian, v) }
+	w([]uint16{0, count, 6 + 12*count}) // format, count, stringOffset
+	for i := 0; i < count; i++ {
+		w([]uint16{3, 1, 0x409, uint16(i), strLen, 0}) // platform, encoding, language, nameID, length, offset
+	}
+	w(bytes.Repeat([]byte{0, 'A'}, strLen/2))
+	data := buf.Bytes()
+
+	f := &font{trec: &tableRecords{trMap: map[string]*tableRecord{"name": {offset: 0, length: uint32(len(data))}}}}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	name, err := f.parseNameTable(newByteReader(bytes.NewReader(data)))
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4<<20), "shared storage must not be copied per record")
+	require.Len(t, name.nameRecords, count)
+	for _, nr := range name.nameRecords {
+		require.Len(t, nr.data, strLen)
+		assert.Equal(t, len(nr.data), cap(nr.data), "record data must not extend into neighbouring storage")
+	}
+
+	var out bytes.Buffer
+	ow := newByteWriter(&out)
+	f.name = name
+	require.NoError(t, f.writeNameTable(ow))
+	require.NoError(t, ow.flush())
+	assert.Equal(t, len(data), out.Len(), "the storage is written once")
 }
