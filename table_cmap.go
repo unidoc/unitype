@@ -280,15 +280,36 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 	charcodes := make([]CharCode, int(f.maxp.numGlyphs))
 	charcodeMap := make(map[CharCode]GlyphIndex, f.maxp.numGlyphs)
 	logrus.Debugf("Number of glyphs in font: %d\n", f.maxp.numGlyphs)
+	// Expand segments in start-code order, trimming each to the codes no
+	// earlier segment maps, so a subtable expands each code at most once. The
+	// final 0xFFFF segment is excluded, as before.
+	var order []int
 	for i := 0; i < segCount-1; i++ {
+		order = append(order, i)
+	}
+	sort.SliceStable(order, func(a, b int) bool { return st.startCode[order[a]] < st.startCode[order[b]] })
+	prevEnd := -1
+	for _, i := range order {
 		c1 := st.startCode[i]
 		c2 := st.endCode[i]
 		d := st.idDelta[i]
 		rangeOffset := st.idRangeOffset[i]
+		if c1 > c2 || int(c2) <= prevEnd {
+			logrus.Debugf("cmap format 4 segment %d-%d is covered by an earlier segment, skipping", c1, c2)
+			continue
+		}
+		// Start after the codes an earlier segment already maps; glyph lookup
+		// stays relative to the segment's own start code.
+		first := int(c1)
+		if first <= prevEnd {
+			first = prevEnd + 1
+		}
+		prevEnd = int(c2)
 
 		logrus.Debugf("Segment %d/%d, c1: %d, c2: %d, d: %d, rangeOffset: %d", i+1, segCount, c1, c2, d, rangeOffset)
 
-		for c := c1; c <= c2; c++ {
+		for cc := first; cc <= int(c2); cc++ {
+			c := uint16(cc)
 			var gid uint16
 
 			if rangeOffset == 0 {

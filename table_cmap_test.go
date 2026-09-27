@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"os"
+	"reflect"
 	"runtime"
 	"testing"
 
@@ -281,4 +282,70 @@ func TestParseCmapFormat12_TrimPastGlyphs(t *testing.T) {
 	require.NoError(t, err)
 	_, hasQ := st.cmap['Q']
 	assert.False(t, hasQ)
+}
+
+// cmap4Bytes encodes a format 4 subtable body (after the format field) from
+// parallel segment slices, ending with the required 0xFFFF segment.
+func cmap4Bytes(start, end, delta, rangeOffset, glyphIDs []uint16) []byte {
+	segCount := len(start) + 1
+	var buf bytes.Buffer
+	w := func(v interface{}) { _ = binary.Write(&buf, binary.BigEndian, v) }
+	w(uint16(2*8 + 2*4*segCount + 2*len(glyphIDs))) // length
+	w([]uint16{0, uint16(2 * segCount), 0, 0, 0})   // language, segCountX2, searchRange, entrySelector, rangeShift
+	w(append(append([]uint16(nil), end...), 0xFFFF))
+	w(uint16(0)) // reservedPad
+	w(append(append([]uint16(nil), start...), 0xFFFF))
+	w(append(append([]uint16(nil), delta...), 1))
+	w(append(append([]uint16(nil), rangeOffset...), 0))
+	w(glyphIDs)
+	return buf.Bytes()
+}
+
+// TestParseCmapFormat4_SegmentOrder asserts segments listed out of start-code
+// order map correctly, each indexing glyphIDArray from its own position.
+func TestParseCmapFormat4_SegmentOrder(t *testing.T) {
+	// Segment 0 maps 'b' and segment 1 maps 'a', both through glyphIDArray:
+	// index = idRangeOffset/2 + (c - start) + i - segCount, so with segCount 3
+	// and idRangeOffset 6, segment 0 reads glyphIDArray[0] and segment 1 reads
+	// glyphIDArray[1].
+	data := cmap4Bytes([]uint16{'b', 'a'}, []uint16{'b', 'a'}, []uint16{0, 0}, []uint16{6, 6}, []uint16{5, 7})
+	f := &font{maxp: &maxpTable{numGlyphs: 10}}
+	st, err := f.parseCmapSubtableFormat4(newByteReader(bytes.NewReader(data)), 3, 1)
+	require.NoError(t, err)
+	assert.Equal(t, map[rune]GlyphIndex{'a': 7, 'b': 5}, st.cmap)
+}
+
+// TestParseCmapFormat4_OverlappingSegments asserts repeated overlapping
+// segments are expanded once rather than once per segment.
+func TestParseCmapFormat4_OverlappingSegments(t *testing.T) {
+	const n = 1000
+	start, end, zeros := make([]uint16, n), make([]uint16, n), make([]uint16, n)
+	for i := range end {
+		end[i] = 0xFFFE
+	}
+	f := &font{maxp: &maxpTable{numGlyphs: 0xFFFF}}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	st, err := f.parseCmapSubtableFormat4(newByteReader(bytes.NewReader(cmap4Bytes(start, end, zeros, zeros, nil))), 3, 1)
+	runtime.ReadMemStats(&after)
+	require.NoError(t, err)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(64<<20), "overlapping segments must not each be expanded")
+
+	one, err := f.parseCmapSubtableFormat4(newByteReader(bytes.NewReader(cmap4Bytes(start[:1], end[:1], zeros[:1], zeros[:1], nil))), 3, 1)
+	require.NoError(t, err)
+	assert.True(t, reflect.DeepEqual(one.cmap, st.cmap), "must map the same as a single segment")
+}
+
+// TestParseCmapFormat4_PartialOverlap asserts a segment partly overlapping an
+// earlier one maps only the codes it adds, still indexing glyphIDArray from
+// its own start code.
+func TestParseCmapFormat4_PartialOverlap(t *testing.T) {
+	// Segment 0 maps a-c to glyphs 1-3 by delta. Segment 1 covers b-d through
+	// glyphIDArray: index = idRangeOffset/2 + (c - 'b') + 1 - 3, so 'd' reads
+	// glyphIDArray[1] and 'b' (index -1) would be out of bounds if evaluated.
+	data := cmap4Bytes([]uint16{'a', 'b'}, []uint16{'c', 'd'}, []uint16{0xFFA0, 0}, []uint16{0, 2}, []uint16{5, 9}) // idDelta 0xFFA0 is 1-'a' mod 65536
+	f := &font{maxp: &maxpTable{numGlyphs: 10}}
+	st, err := f.parseCmapSubtableFormat4(newByteReader(bytes.NewReader(data)), 3, 1)
+	require.NoError(t, err)
+	assert.Equal(t, map[rune]GlyphIndex{'a': 1, 'b': 2, 'c': 3, 'd': 9}, st.cmap)
 }
