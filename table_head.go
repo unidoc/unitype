@@ -6,7 +6,6 @@
 package unitype
 
 import (
-	"bytes"
 	"errors"
 
 	"github.com/sirupsen/logrus"
@@ -45,7 +44,7 @@ func (f *font) parseHead(fr *byteReader) (*headTable, error) {
 		// Does not have head.
 		return nil, nil
 	}
-	r := newByteReader(bytes.NewReader(buf))
+	r := newBytesReader(buf)
 
 	t := &headTable{}
 	err = r.read(&t.majorVersion, &t.minorVersion, &t.fontRevision)

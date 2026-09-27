@@ -6,8 +6,6 @@
 package unitype
 
 import (
-	"bytes"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -140,7 +138,7 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		logrus.Debug("OS/2 table shorter than any defined version, treating as absent")
 		return nil, nil
 	}
-	br := newByteReader(bytes.NewReader(buf))
+	br := newBytesReader(buf)
 
 	t := &os2Table{length: uint32(len(buf))}
 	err = br.read(&t.version, &t.xAvgCharWidth, &t.usWeightClass, &t.usWidthClass, &t.fsType)

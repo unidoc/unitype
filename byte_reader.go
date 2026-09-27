@@ -7,6 +7,7 @@ package unitype
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"io"
 
@@ -25,6 +26,16 @@ func newByteReader(rs io.ReadSeeker) *byteReader {
 	return &byteReader{
 		rs:     rs,
 		reader: bufio.NewReader(rs),
+	}
+}
+
+// newBytesReader returns a byteReader over b with a read buffer sized to b
+// rather than bufio's 4 KB default, for parsing small in-memory tables.
+func newBytesReader(b []byte) *byteReader {
+	rs := bytes.NewReader(b)
+	return &byteReader{
+		rs:     rs,
+		reader: bufio.NewReaderSize(rs, len(b)),
 	}
 }
 

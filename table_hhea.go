@@ -6,8 +6,6 @@
 package unitype
 
 import (
-	"bytes"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,7 +38,7 @@ func (f *font) parseHhea(fr *byteReader) (*hheaTable, error) {
 		logrus.Debug("hhea table absent")
 		return nil, nil
 	}
-	r := newByteReader(bytes.NewReader(buf))
+	r := newBytesReader(buf)
 
 	t := &hheaTable{}
 	err = r.read(&t.majorVersion, &t.minorVersion)

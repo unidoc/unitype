@@ -6,8 +6,6 @@
 package unitype
 
 import (
-	"bytes"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,7 +41,7 @@ func (f *font) parseMaxp(fr *byteReader) (*maxpTable, error) {
 		logrus.Debug("maxp table not present")
 		return nil, nil
 	}
-	r := newByteReader(bytes.NewReader(buf))
+	r := newBytesReader(buf)
 
 	t := &maxpTable{}
 
