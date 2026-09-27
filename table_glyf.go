@@ -59,9 +59,9 @@ func (f *font) parseGlyf(r *byteReader) (*glyfTable, error) {
 			return nil, err
 		}
 
-		if gdOffset > int64(tr.length) {
+		if gdOffset > int64(tr.length) || gdLen < 0 {
 			logrus.Debugf("gid: %d, gdOffset: %d, tr len: %d, gd len: %d", gid, gdOffset, tr.length, gdLen)
-			logrus.Debugf("Range check error (glyf): %d > %d", gdOffset, tr.length)
+			logrus.Debugf("Range check error (glyf): offset %d, length %d, table length %d", gdOffset, gdLen, tr.length)
 			return nil, errRangeCheck
 		}
 
@@ -72,7 +72,6 @@ func (f *font) parseGlyf(r *byteReader) (*glyfTable, error) {
 		}
 
 		var desc glyphDescription
-		desc.raw = make([]byte, gdLen)
 		err = r.readBytes(&desc.raw, int(gdLen))
 		if err != nil {
 			logrus.Debugf("ERROR: %v", err)

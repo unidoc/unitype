@@ -78,3 +78,16 @@ func TestGlyfReadWrite(t *testing.T) {
 		})
 	}
 }
+
+// TestParseGlyf_MalformedLoca asserts a loca entry smaller than the previous
+// one is rejected rather than panicking on a negative glyph length.
+func TestParseGlyf_MalformedLoca(t *testing.T) {
+	f := &font{
+		head: &headTable{indexToLocFormat: 1},
+		maxp: &maxpTable{numGlyphs: 2},
+		loca: &locaTable{offsetsLong: []offset32{0, 10, 5}},
+		trec: &tableRecords{trMap: map[string]*tableRecord{"glyf": {offset: 0, length: 20}}},
+	}
+	_, err := f.parseGlyf(newByteReader(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 64))))
+	assert.ErrorIs(t, err, errRangeCheck)
+}
