@@ -27,7 +27,7 @@ func TestParseHead_RejectsShortTable(t *testing.T) {
 	// magicNumber at its real offset (12), just past the declared length.
 	data := make([]byte, 12)
 	data = append(data, 0x5F, 0x0F, 0x3C, 0xF5)
-	data = append(data, bytes.Repeat([]byte{0xFF}, 20)...)
+	data = append(data, bytes.Repeat([]byte{0xFF}, 64)...) // enough for a full head past the magic
 	f := &font{
 		trec: &tableRecords{
 			trMap: map[string]*tableRecord{

@@ -121,9 +121,9 @@ func (f *font) readTableBytes(r *byteReader, tableName string) (buf []byte, tr *
 		return nil, tr, has, err
 	}
 
-	n := int(tr.length)
-	if n > maxBoundedTableLen {
-		n = maxBoundedTableLen
+	n := maxBoundedTableLen
+	if tr.length < maxBoundedTableLen {
+		n = int(tr.length)
 	}
 	buf = make([]byte, n)
 	read, err := io.ReadFull(r.reader, buf)

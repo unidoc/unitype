@@ -13,7 +13,7 @@ import (
 // TestParseHhea_RejectsShortTable asserts an hhea record shorter than 36
 // bytes fails rather than reading the bytes after it.
 func TestParseHhea_RejectsShortTable(t *testing.T) {
-	data := append(make([]byte, 10), bytes.Repeat([]byte{0xFF}, 20)...)
+	data := append(make([]byte, 10), bytes.Repeat([]byte{0xFF}, 64)...) // enough for a full hhea
 	f := &font{
 		trec: &tableRecords{
 			trMap: map[string]*tableRecord{
