@@ -103,6 +103,27 @@ func truncatedOS2Bytes(declaredVersion uint16, payloadLen int) []byte {
 	return append(payload, bytes.Repeat([]byte{0xFF}, 20)...)
 }
 
+// TestOS2_EffectiveLength asserts an os2Table built in code (length unset)
+// reports its version's full length, and a parsed length is used as-is.
+func TestOS2_EffectiveLength(t *testing.T) {
+	for version, want := range map[uint16]uint32{0: os2LenV0Microsoft, 1: os2LenV1, 4: os2LenV2to4, 5: os2LenV5} {
+		assert.Equal(t, want, (&os2Table{version: version}).effectiveLength(), "version %d", version)
+	}
+	assert.Equal(t, uint32(os2LenV0Apple), (&os2Table{version: 4, length: os2LenV0Apple}).effectiveLength())
+}
+
+// TestMetrics_MissingTables asserts the accessors return zero values for a
+// Font with none of the tables they read.
+func TestMetrics_MissingTables(t *testing.T) {
+	f := &Font{font: &font{}}
+	assert.Equal(t, OS2Metrics{}, f.OS2Metrics())
+	assert.Equal(t, HheaMetrics{}, f.HheaMetrics())
+	assert.Zero(t, f.UnitsPerEm())
+	assert.Zero(t, f.NumGlyphs())
+	_, ok := f.GlyphAdvance(0)
+	assert.False(t, ok)
+}
+
 // TestParseOS2Table_Truncated asserts, at every OS/2 length boundary, that
 // fields beyond the declared length or version stay zero.
 func TestParseOS2Table_Truncated(t *testing.T) {

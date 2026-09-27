@@ -7,6 +7,7 @@ package unitype
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -147,4 +148,43 @@ func TestTableRecordsReadWrite(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, fnt.trec.list, trs.list)
 	}
+}
+
+// errAfterReader serves data, then fails every Read with err.
+type errAfterReader struct {
+	*bytes.Reader
+	err error
+}
+
+func (r errAfterReader) Read(p []byte) (int, error) {
+	if r.Len() == 0 {
+		return 0, r.err
+	}
+	return r.Reader.Read(p)
+}
+
+// TestReadTableBytes asserts readTableBytes returns the bytes present on a
+// short file, caps the read at maxBoundedTableLen, and passes up a non-EOF
+// read error.
+func TestReadTableBytes(t *testing.T) {
+	newFont := func(length uint32) *font {
+		return &font{trec: &tableRecords{trMap: map[string]*tableRecord{"test": {offset: 0, length: length}}}}
+	}
+
+	buf, has, err := newFont(10).readTableBytes(newByteReader(bytes.NewReader(make([]byte, 4))), "test")
+	require.NoError(t, err)
+	assert.True(t, has)
+	assert.Len(t, buf, 4, "short file returns the bytes present")
+
+	buf, _, err = newFont(0xFFFFFFFF).readTableBytes(newByteReader(bytes.NewReader(make([]byte, 2*maxBoundedTableLen))), "test")
+	require.NoError(t, err)
+	assert.Len(t, buf, maxBoundedTableLen)
+
+	_, has, err = newFont(10).readTableBytes(newByteReader(bytes.NewReader(nil)), "absent")
+	require.NoError(t, err)
+	assert.False(t, has)
+
+	ioErr := errors.New("disk error")
+	_, _, err = newFont(10).readTableBytes(newByteReader(errAfterReader{bytes.NewReader(make([]byte, 4)), ioErr}), "test")
+	assert.ErrorIs(t, err, ioErr)
 }
