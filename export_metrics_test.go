@@ -23,15 +23,12 @@ func TestRobotoMetrics(t *testing.T) {
 	t.Run("OS2Metrics", func(t *testing.T) {
 		m := f.OS2Metrics()
 		assert.True(t, m.Present, "Roboto should have OS/2 table")
-		// Asserted by sign/range; XHeight/CapHeight/UseTypoMetrics below are
-		// pinned to Roboto-Regular's exact values instead.
 		assert.Greater(t, m.TypoAscender, int16(0))
 		assert.Less(t, m.TypoDescender, int16(0))
 		assert.GreaterOrEqual(t, m.TypoLineGap, int16(0))
 		assert.Greater(t, m.WinAscent, uint16(0))
 		assert.Greater(t, m.WinDescent, uint16(0))
-		// XHeight, CapHeight and UseTypoMetrics come from this specific
-		// bundled font file, so assert exact values rather than sign/range.
+		// Exact values from Roboto-Regular.ttf.
 		assert.Equal(t, int16(1082), m.XHeight, "Roboto-Regular sxHeight")
 		assert.Equal(t, int16(1456), m.CapHeight, "Roboto-Regular sCapHeight")
 		assert.False(t, m.UseTypoMetrics, "Roboto-Regular fsSelection bit 7 (USE_TYPO_METRICS) is unset")
@@ -121,9 +118,9 @@ func TestParseOS2Table_Truncated(t *testing.T) {
 		{"v0 Microsoft (78)", 0, os2LenV0Microsoft, true, false, false},
 		{"v1 (86)", 1, os2LenV1, true, false, false},
 		{"v4 truncated at v1 length (86)", 4, os2LenV1, true, false, false},
-		{"v1 padded to v2-4 length (96): version, not just length, gates v2 fields", 1, os2LenV2to4, true, false, false},
+		{"v1 padded to v2-4 length (96)", 1, os2LenV2to4, true, false, false},
 		{"v2-4 (96)", 4, os2LenV2to4, true, true, false},
-		{"v2-4 padded to v5 length (100): version, not just length, gates v5 fields", 4, os2LenV5, true, true, false},
+		{"v2-4 padded to v5 length (100)", 4, os2LenV5, true, true, false},
 		{"v5 (100)", 5, os2LenV5, true, true, true},
 	}
 	for _, tt := range tests {
