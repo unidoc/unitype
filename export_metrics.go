@@ -5,28 +5,11 @@
 
 package unitype
 
-// OS2Metrics exposes the OS/2 table fields most relevant to line-layout.
-// Ascender/Descender/LineGap are in font design units (FUnits). Divide by
-// UnitsPerEm to convert to em; multiply by fontSize (px) for pixel values.
+// OS2Metrics exposes the OS/2 table fields most relevant to line-layout, in
+// font design units (FUnits); divide by UnitsPerEm to convert to em.
 //
-// XHeight/CapHeight are only defined for Version >= 2.
-//
-// TypoAscender/TypoDescender/TypoLineGap/WinAscent/WinDescent read zero, and
-// HasTypoWinMetrics is false, if the table is a short (68-byte) Apple-style
-// version 0 OS/2 table, which ends before these fields; Version alone does
-// not distinguish this case from a full-length version 0 table, since both
-// report Version == 0. A caller that needs a line-height/clipping source
-// even for a short table should fall back to HheaMetrics.
-//
-// UseTypoMetrics reports fsSelection bit 7 (USE_TYPO_METRICS). When set, the
-// font author intends sTypoAscender/sTypoDescender/sTypoLineGap to drive
-// line-height rather than the legacy usWinAscent/usWinDescent values returned
-// by many TrueType rasterizers. Bit 7 is only defined from OS/2 version 4
-// onward, and only meaningful if TypoAscender etc. are actually present, so
-// this field is false whenever HasTypoWinMetrics is false even if the table
-// claims version 4+ (a table can claim a version its own truncated length
-// contradicts) - otherwise a caller honoring USE_TYPO_METRICS would drive
-// line-height off TypoAscender=0 instead of falling back to HheaMetrics.
+// HasTypoWinMetrics is false for a short (68-byte) version 0 table, which
+// ends before the Typo/Win fields; fall back to HheaMetrics in that case.
 //
 // https://docs.microsoft.com/en-us/typography/opentype/spec/os2
 type OS2Metrics struct {
@@ -39,7 +22,7 @@ type OS2Metrics struct {
 	HasTypoWinMetrics bool  // true if TypoAscender..WinDescent are from the source table, not absent-and-zero
 	XHeight           int16 // sxHeight; only defined for Version >= 2, else 0
 	CapHeight         int16 // sCapHeight; only defined for Version >= 2, else 0
-	UseTypoMetrics    bool  // fsSelection bit 7, see doc comment above
+	UseTypoMetrics    bool  // fsSelection bit 7; false unless Version >= 4 and HasTypoWinMetrics
 	Present           bool  // false if the font has no OS/2 table
 }
 

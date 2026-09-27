@@ -15,9 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRobotoMetrics covers OS2Metrics/HheaMetrics/UnitsPerEm/NumGlyphs/
-// GlyphAdvance in one ParseFile of the bundled Roboto-Regular.ttf, since each
-// only reads a few header fields off the same parsed Font.
+// TestRobotoMetrics covers the metric accessors against Roboto-Regular.ttf.
 func TestRobotoMetrics(t *testing.T) {
 	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
 	require.NoError(t, err)
@@ -79,10 +77,8 @@ func TestRobotoMetrics(t *testing.T) {
 	})
 }
 
-// TestOS2Metrics_UseTypoMetricsVersionGate: UseTypoMetrics honors fsSelection
-// bit 7 only for OS/2 version >= 4; the bit is reserved and ignored below
-// that. White-box (package unitype) to construct a synthetic os2Table, since
-// none of the bundled fonts have the bit set.
+// TestOS2Metrics_UseTypoMetricsVersionGate asserts fsSelection bit 7 is
+// honored only for OS/2 version >= 4.
 func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
 	// length: os2LenV2to4, a genuine non-truncated v4 table, so
 	// hasTypoWinMetrics() is true and doesn't mask the bit-7 gate under test.
@@ -101,11 +97,8 @@ func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
 	assert.False(t, v4BitClear.OS2Metrics().UseTypoMetrics)
 }
 
-// truncatedOS2Bytes builds OS/2 table bytes claiming declaredVersion but
-// only payloadLen bytes long, followed by sentinel 0xFF bytes standing in
-// for whatever unrelated table happens to follow OS/2 in a real font file -
-// if parseOS2Table ever reads past its own declared length, it picks these
-// up instead of leaving the corresponding fields zero.
+// truncatedOS2Bytes returns payloadLen bytes of an OS/2 table claiming
+// declaredVersion, followed by sentinel bytes standing in for the next table.
 func truncatedOS2Bytes(declaredVersion uint16, payloadLen int) []byte {
 	payload := bytes.Repeat([]byte{0xAB}, payloadLen)
 	payload[0] = byte(declaredVersion >> 8) // big-endian, per byteReader.readUint16
@@ -113,11 +106,8 @@ func truncatedOS2Bytes(declaredVersion uint16, payloadLen int) []byte {
 	return append(payload, bytes.Repeat([]byte{0xFF}, 20)...)
 }
 
-// TestParseOS2Table_Truncated covers every OS/2 version boundary
-// (os2LenV0Apple/V0Microsoft/V1/V2to4/V5): a table truncated before a given
-// block's fields must leave them zero rather than read past its own declared
-// length into whatever bytes follow OS/2 in the file. White-box (package
-// unitype) since no bundled font has a truncated OS/2 table.
+// TestParseOS2Table_Truncated asserts, at every OS/2 length boundary, that
+// fields beyond the declared length or version stay zero.
 func TestParseOS2Table_Truncated(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -182,12 +172,8 @@ func TestParseOS2Table_Truncated(t *testing.T) {
 	}
 }
 
-// TestOS2Metrics_UseTypoMetrics_RequiresPresence: a table that claims
-// version 4+ with fsSelection bit 7 set, but is truncated before
-// sTypoAscender..usWinDescent (so those fields are absent, not just zero),
-// must report UseTypoMetrics=false - otherwise a caller honoring
-// USE_TYPO_METRICS would drive line-height off TypoAscender=0 instead of
-// falling back to HheaMetrics.
+// TestOS2Metrics_UseTypoMetrics_RequiresPresence asserts UseTypoMetrics is
+// false for a v4 table with bit 7 set but no Typo/Win fields.
 func TestOS2Metrics_UseTypoMetrics_RequiresPresence(t *testing.T) {
 	f := &font{os2: &os2Table{length: os2LenV0Apple, version: 4, fsSelection: 0x0080}}
 	m := (&Font{font: f}).OS2Metrics()
@@ -195,11 +181,8 @@ func TestOS2Metrics_UseTypoMetrics_RequiresPresence(t *testing.T) {
 	assert.False(t, m.UseTypoMetrics, "bit 7 must not be honored when the typo fields it refers to are absent")
 }
 
-// TestOS2_ShortV0RoundTrip: a font parsed from a short (68-byte) Apple v0
-// OS/2 table must still be a short v0 table after writeOS2 - if writeOS2
-// wrote the zero-valued TypoAscender/WinDescent as if they were real values,
-// re-parsing would see a full 78-byte table with WinAscent/WinDescent = 0,
-// which a renderer could use to clip all glyphs to zero height.
+// TestOS2_ShortV0RoundTrip asserts a short (68-byte) v0 table is still 68
+// bytes after writeOS2 and re-parse.
 func TestOS2_ShortV0RoundTrip(t *testing.T) {
 	payload := make([]byte, os2LenV0Apple)
 	data := append(payload, bytes.Repeat([]byte{0xFF}, 20)...)
@@ -292,12 +275,8 @@ func TestParseOS2Table_FileEndsEarly(t *testing.T) {
 	assert.Nil(t, table)
 }
 
-// TestGlyphAdvance_TrailingInheritance covers a VALID gid beyond
-// numberOfHMetrics (hmtx stores explicit widths only for the first
-// numberOfHMetrics glyphs; every later glyph inherits the last one's
-// advance, per the OpenType hmtx spec). FreeSans.ttf has numberOfHMetrics
-// (3722) < numGlyphs (3726), so gids 3722-3725 all reach this branch with ok
-// still true.
+// TestGlyphAdvance_TrailingInheritance asserts gids past numberOfHMetrics
+// inherit the last advance (FreeSans.ttf: 3722 hMetrics, 3726 glyphs).
 func TestGlyphAdvance_TrailingInheritance(t *testing.T) {
 	f, err := ParseFile("./testdata/FreeSans.ttf")
 	require.NoError(t, err)
