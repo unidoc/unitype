@@ -123,7 +123,7 @@ func (f *font) parsePost(r *byteReader) (*postTable, error) {
 				logrus.Debugf("%d > %d", r.Offset()-start, tr.length)
 				return nil, errors.New("reading outside table")
 			}
-			var numChars int8
+			var numChars uint8
 			err = r.read(&numChars)
 			if err != nil {
 				return nil, err
@@ -132,7 +132,7 @@ func (f *font) parsePost(r *byteReader) (*postTable, error) {
 				break
 			}
 
-			name := make([]byte, numChars)
+			var name []byte
 			err = r.readBytes(&name, int(numChars))
 			if err != nil {
 				logrus.Debugf("ERROR: %v", err)

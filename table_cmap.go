@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/sirupsen/logrus"
 )
@@ -34,6 +35,10 @@ type encodingRecord struct {
 	encodingID uint16
 	offset     offset32
 }
+
+// maxCmapMappings bounds the codes parseCmap maps across all subtables: room
+// for one full-Unicode format 12 subtable plus one full format 4 subtable.
+const maxCmapMappings = maxUnicodeCodePoint + 1 + 0x10000
 
 func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 	if f.maxp == nil {
@@ -66,8 +71,30 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 		t.encodingRecords = append(t.encodingRecords, enc)
 	}
 
-	// Process the encoding subtables.
+	// Process the encoding subtables. Records sharing a subtable offset and
+	// rune decoding reuse one parse, and parsing stops once the subtables
+	// parsed so far map more than maxCmapMappings codes.
+	type parsedKey struct {
+		offset   offset32
+		encoding cmapEncoding
+	}
+	parsed := map[parsedKey]*cmapSubtable{}
+	mappings := 0
 	for _, enc := range t.encodingRecords {
+		pk := parsedKey{enc.offset, getCmapEncoding(int(enc.platformID), int(enc.encodingID))}
+		if prev, ok := parsed[pk]; ok {
+			cmap := *prev
+			cmap.platformID, cmap.encodingID = int(enc.platformID), int(enc.encodingID)
+			key := fmt.Sprintf("%d,%d,%d", cmap.format, enc.platformID, enc.encodingID)
+			t.subtables[key] = &cmap
+			t.subtableKeys = append(t.subtableKeys, key)
+			continue
+		}
+		if mappings > maxCmapMappings {
+			logrus.Debugf("cmap subtables already map %d codes, skipping the rest", mappings)
+			break
+		}
+
 		// Seek to the subtable.
 		err = r.SeekTo(int64(tr.offset) + int64(enc.offset))
 		if err != nil {
@@ -101,6 +128,8 @@ func (f *font) parseCmap(r *byteReader) (*cmapTable, error) {
 			return nil, err
 		}
 		if cmap != nil {
+			parsed[pk] = cmap
+			mappings += len(cmap.cmap)
 			key := fmt.Sprintf("%d,%d,%d", format, enc.platformID, enc.encodingID)
 			t.subtables[key] = cmap
 			t.subtableKeys = append(t.subtableKeys, key)
@@ -279,15 +308,36 @@ func (f *font) parseCmapSubtableFormat4(r *byteReader, platformID, encodingID in
 	charcodes := make([]CharCode, int(f.maxp.numGlyphs))
 	charcodeMap := make(map[CharCode]GlyphIndex, f.maxp.numGlyphs)
 	logrus.Debugf("Number of glyphs in font: %d\n", f.maxp.numGlyphs)
+	// Expand segments in start-code order, trimming each to the codes no
+	// earlier segment maps, so a subtable expands each code at most once. The
+	// final 0xFFFF segment is excluded, as before.
+	var order []int
 	for i := 0; i < segCount-1; i++ {
+		order = append(order, i)
+	}
+	sort.SliceStable(order, func(a, b int) bool { return st.startCode[order[a]] < st.startCode[order[b]] })
+	prevEnd := -1
+	for _, i := range order {
 		c1 := st.startCode[i]
 		c2 := st.endCode[i]
 		d := st.idDelta[i]
 		rangeOffset := st.idRangeOffset[i]
+		if c1 > c2 || int(c2) <= prevEnd {
+			logrus.Debugf("cmap format 4 segment %d-%d is covered by an earlier segment, skipping", c1, c2)
+			continue
+		}
+		// Start after the codes an earlier segment already maps; glyph lookup
+		// stays relative to the segment's own start code.
+		first := int(c1)
+		if first <= prevEnd {
+			first = prevEnd + 1
+		}
+		prevEnd = int(c2)
 
 		logrus.Debugf("Segment %d/%d, c1: %d, c2: %d, d: %d, rangeOffset: %d", i+1, segCount, c1, c2, d, rangeOffset)
 
-		for c := c1; c <= c2; c++ {
+		for cc := first; cc <= int(c2); cc++ {
+			c := uint16(cc)
 			var gid uint16
 
 			if rangeOffset == 0 {
@@ -467,6 +517,11 @@ type sequentialMapGroup struct {
 	startGlyphID  uint32 // Glyph index corresponding to the starting character code.
 }
 
+// maxUnicodeCodePoint is the largest Unicode code point. Format 12 maps
+// Unicode, so its mapped groups are limited to it, which also caps the work
+// of expanding them regardless of how many groups a table declares.
+const maxUnicodeCodePoint = 0x10FFFF
+
 func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID int) (*cmapSubtable, error) {
 	st := cmapSubtableFormat12{}
 	err := r.read(&st.reserved, &st.length, &st.language, &st.numGroups)
@@ -492,14 +547,34 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 	runes := make([]rune, f.maxp.numGlyphs)
 	charcodes := make([]CharCode, f.maxp.numGlyphs)
 	charcodeMap := make(map[CharCode]GlyphIndex, f.maxp.numGlyphs)
-	for _, group := range st.groups {
-		gid := GlyphIndex(group.startGlyphID)
-		if int(gid) >= int(f.maxp.numGlyphs) {
-			logrus.Debugf("gid >= numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
-			logrus.Debugf("Error: %v", errRangeCheck)
+	groups := append([]sequentialMapGroup(nil), st.groups...)
+	sort.SliceStable(groups, func(i, j int) bool { return groups[i].startCharCode < groups[j].startCharCode })
+	prevEnd := int64(-1)
+	for _, group := range groups {
+		start, end := group.startCharCode, group.endCharCode
+		if end > maxUnicodeCodePoint {
+			end = maxUnicodeCodePoint
+		}
+		if start > end || int64(end) <= prevEnd {
+			logrus.Debugf("cmap format 12 group %d-%d is covered by an earlier group or beyond U+10FFFF, skipping", group.startCharCode, group.endCharCode)
+			continue
+		}
+		if group.startGlyphID >= uint32(f.maxp.numGlyphs) {
+			logrus.Debugf("startGlyphID >= numGlyphs (%d >= %d)", group.startGlyphID, f.maxp.numGlyphs)
 			return nil, errRangeCheck
 		}
-		for charcode := group.startCharCode; charcode <= group.endCharCode; charcode++ {
+		first := uint64(group.startGlyphID)
+		if int64(start) <= prevEnd {
+			// Trim the part an earlier group already maps.
+			first += uint64(prevEnd + 1 - int64(start))
+			start = uint32(prevEnd + 1)
+		}
+		prevEnd = int64(end)
+		if first >= uint64(f.maxp.numGlyphs) {
+			continue
+		}
+		gid := GlyphIndex(first)
+		for charcode := start; charcode <= end; charcode++ {
 			if int(gid) >= int(f.maxp.numGlyphs) {
 				break
 			}
@@ -557,8 +632,6 @@ func (f *font) writeCmap(w *byteWriter) error {
 	}
 	t := f.cmap
 
-	err := w.write(t.version, t.numTables)
-
 	// Write the cmap subtables to an in-memory mock buffer to calculate offsets.
 	var mockBuffer bytes.Buffer
 	mockWriter := newByteWriter(&mockBuffer)
@@ -602,7 +675,14 @@ func (f *font) writeCmap(w *byteWriter) error {
 			encodingRecords = append(encodingRecords, rec)
 		}
 	}
-	err = mockWriter.flush()
+	err := mockWriter.flush()
+	if err != nil {
+		return err
+	}
+
+	// The table count is that of the encoding records written, which leaves
+	// out any the parse skipped or whose format is not written.
+	err = w.write(t.version, uint16(len(encodingRecords)))
 	if err != nil {
 		return err
 	}

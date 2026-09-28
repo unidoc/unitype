@@ -20,6 +20,11 @@ import (
 type byteReader struct {
 	rs     io.ReadSeeker
 	reader *bufio.Reader
+
+	// size is the stream's size, recorded by remaining the first time it's
+	// needed (sizeKnown).
+	size      int64
+	sizeKnown bool
 }
 
 func newByteReader(rs io.ReadSeeker) *byteReader {
@@ -49,14 +54,35 @@ func (r byteReader) Offset() int64 {
 	return offset
 }
 
-// SeekTo seeks to offset.
+// SeekTo seeks to offset, discarding any buffered data but reusing the
+// read buffer.
 func (r *byteReader) SeekTo(offset int64) error {
 	_, err := r.rs.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
 	}
-	r.reader = bufio.NewReader(r.rs)
+	r.reader.Reset(r.rs)
 	return nil
+}
+
+// remaining returns the number of bytes left in the stream after the current
+// offset of `r`.
+func (r *byteReader) remaining() (int64, error) {
+	pos, err := r.rs.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	if !r.sizeKnown {
+		end, err := r.rs.Seek(0, io.SeekEnd)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := r.rs.Seek(pos, io.SeekStart); err != nil {
+			return 0, err
+		}
+		r.size, r.sizeKnown = end, true
+	}
+	return r.size - pos + int64(r.reader.Buffered()), nil
 }
 
 // Skip skips over `n` bytes.
@@ -65,8 +91,26 @@ func (r *byteReader) Skip(n int) error {
 	return err
 }
 
-// readBytes reads bytes straight from `r`.
+// maxUncheckedReadLen is the largest length readBytes allocates without
+// first checking that the stream holds that many more bytes.
+const maxUncheckedReadLen = 64 * 1024
+
+// readBytes reads bytes straight from `r`. A negative length is an error, and
+// a length over maxUncheckedReadLen is checked against the bytes left in the
+// stream before allocating.
 func (r *byteReader) readBytes(bp *[]byte, length int) error {
+	if length < 0 {
+		return errRangeCheck
+	}
+	if length > maxUncheckedReadLen {
+		remaining, err := r.remaining()
+		if err != nil {
+			return err
+		}
+		if int64(length) > remaining {
+			return io.ErrUnexpectedEOF
+		}
+	}
 	*bp = make([]byte, length)
 	_, err := io.ReadFull(r.reader, *bp)
 	if err != nil {

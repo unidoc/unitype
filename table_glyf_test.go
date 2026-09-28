@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,4 +78,34 @@ func TestGlyfReadWrite(t *testing.T) {
 			require.Equal(t, fnt.glyf, glyft)
 		})
 	}
+}
+
+// TestParseGlyf_MalformedLoca asserts a loca entry smaller than the previous
+// one is rejected rather than panicking on a negative glyph length.
+func TestParseGlyf_MalformedLoca(t *testing.T) {
+	f := &font{
+		head: &headTable{indexToLocFormat: 1},
+		maxp: &maxpTable{numGlyphs: 2},
+		loca: &locaTable{offsetsLong: []offset32{0, 10, 5}},
+		trec: &tableRecords{trMap: map[string]*tableRecord{"glyf": {offset: 0, length: 20}}},
+	}
+	_, err := f.parseGlyf(newByteReader(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 64))))
+	assert.ErrorIs(t, err, errRangeCheck)
+}
+
+// TestParseGlyf_HugeGlyphLength asserts a loca range far longer than the
+// input fails without allocating that length.
+func TestParseGlyf_HugeGlyphLength(t *testing.T) {
+	f := &font{
+		head: &headTable{indexToLocFormat: 1},
+		maxp: &maxpTable{numGlyphs: 1},
+		loca: &locaTable{offsetsLong: []offset32{0, 0x70000000}}, // positive as a 32-bit int
+		trec: &tableRecords{trMap: map[string]*tableRecord{"glyf": {offset: 0, length: 0xFFFFFFFF}}},
+	}
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := f.parseGlyf(newByteReader(bytes.NewReader(make([]byte, 64))))
+	runtime.ReadMemStats(&after)
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), "must not allocate the claimed length")
 }

@@ -31,6 +31,10 @@ type nameTable struct {
 	// format = 1 adds
 	langTagCount   uint16
 	langTagRecords []*langTagRecord // len = langTagCount
+
+	// storage is the string storage as parsed, which every record's data is a
+	// slice of; writeNameTable writes it back unchanged when set.
+	storage []byte
 }
 
 type langTagRecord struct {
@@ -204,48 +208,55 @@ func (f *font) parseNameTable(r *byteReader) (*nameTable, error) {
 		}
 	}
 
-	// Get the actual string data.
+	// Read the string storage once, up to the furthest record, and slice each
+	// record's data from it, so records that overlap share their bytes.
+	storageLen := 0
 	for _, nr := range t.nameRecords {
-		if int(t.stringOffset)+int(nr.offset)+int(nr.length) > int(tr.length) {
-			logrus.Debugf("%v> %v", int(t.stringOffset)+int(nr.offset)+int(nr.length), int(tr.length))
+		end := int(nr.offset) + int(nr.length)
+		if int(t.stringOffset)+end > int(tr.length) {
+			logrus.Debugf("%v> %v", int(t.stringOffset)+end, int(tr.length))
 			logrus.Debug("name string offset outside table")
 			return nil, errRangeCheck
 		}
-
-		err = r.SeekTo(int64(t.stringOffset) + int64(tr.offset) + int64(nr.offset))
-		if err != nil {
-			logrus.Debugf("Error: %v", err)
-			return nil, err
-		}
-
-		err = r.readBytes(&nr.data, int(nr.length))
-		if err != nil {
-			logrus.Debugf("Error: %v", err)
-			return nil, err
+		if end > storageLen {
+			storageLen = end
 		}
 	}
-
 	for _, ltr := range t.langTagRecords {
-		if int(t.stringOffset)+int(ltr.offset)+int(ltr.length) > int(tr.length) {
+		end := int(ltr.offset) + int(ltr.length)
+		if int(t.stringOffset)+end > int(tr.length) {
 			logrus.Debug("lang tag string offset outside table")
 			return nil, errRangeCheck
 		}
-
-		err = r.SeekTo(int64(t.stringOffset) + int64(tr.offset) + int64(ltr.offset))
-		if err != nil {
-			logrus.Debugf("Error: %v", err)
-			return nil, err
-		}
-		err = r.readBytes(&ltr.data, int(ltr.length))
-		if err != nil {
-			logrus.Debugf("Error: %v", err)
-			return nil, err
+		if end > storageLen {
+			storageLen = end
 		}
 	}
 
-	logrus.Debugf("Name records: %d", len(t.nameRecords))
+	err = r.SeekTo(int64(tr.offset) + int64(t.stringOffset))
+	if err != nil {
+		logrus.Debugf("Error: %v", err)
+		return nil, err
+	}
+	err = r.readBytes(&t.storage, storageLen)
+	if err != nil {
+		logrus.Debugf("Error: %v", err)
+		return nil, err
+	}
 	for _, nr := range t.nameRecords {
-		logrus.Debugf("%d %d %d - '%s' (%d)", nr.platformID, nr.encodingID, nr.nameID, nr.Decoded(), len(nr.data))
+		end := int(nr.offset) + int(nr.length)
+		nr.data = t.storage[nr.offset:end:end]
+	}
+	for _, ltr := range t.langTagRecords {
+		end := int(ltr.offset) + int(ltr.length)
+		ltr.data = t.storage[ltr.offset:end:end]
+	}
+
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		logrus.Debugf("Name records: %d", len(t.nameRecords))
+		for _, nr := range t.nameRecords {
+			logrus.Debugf("%d %d %d - '%s' (%d)", nr.platformID, nr.encodingID, nr.nameID, nr.Decoded(), len(nr.data))
+		}
 	}
 
 	return t, nil
@@ -258,9 +269,11 @@ func (f *font) writeNameTable(w *byteWriter) error {
 	}
 	t := f.name
 
-	// Preprocess: Write to buffer and update offsets.
-	var buf bytes.Buffer
-	{
+	// A parsed table is written with its storage and record offsets as
+	// parsed. Otherwise, write each record's data in turn and update offsets.
+	storage := t.storage
+	if storage == nil {
+		var buf bytes.Buffer
 		bufw := newByteWriter(&buf)
 		for _, nr := range t.nameRecords {
 			nr.offset = offset16(bufw.bufferedLen())
@@ -282,8 +295,9 @@ func (f *font) writeNameTable(w *byteWriter) error {
 		if err != nil {
 			return err
 		}
+		storage = buf.Bytes()
 	}
-	logrus.Debugf("Buffer length: %d", buf.Len())
+	logrus.Debugf("Buffer length: %d", len(storage))
 
 	// Update count and stringOffsets (calculated).
 	t.count = uint16(len(t.nameRecords))
@@ -323,8 +337,8 @@ func (f *font) writeNameTable(w *byteWriter) error {
 	}
 
 	logrus.Debugf("w @ %d", w.bufferedLen())
-	// Write the buffered data.
-	err = w.writeBytes(buf.Bytes())
+	// Write the string storage.
+	err = w.writeBytes(storage)
 	if err != nil {
 		return err
 	}
