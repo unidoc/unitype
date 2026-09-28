@@ -40,13 +40,14 @@ func (r byteReader) Offset() int64 {
 	return offset
 }
 
-// SeekTo seeks to offset.
+// SeekTo seeks to offset, discarding any buffered data but reusing the
+// read buffer.
 func (r *byteReader) SeekTo(offset int64) error {
 	_, err := r.rs.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
 	}
-	r.reader = bufio.NewReader(r.rs)
+	r.reader.Reset(r.rs)
 	return nil
 }
 
