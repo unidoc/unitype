@@ -156,9 +156,6 @@ func parseFont(r *byteReader) (*font, error) {
 	return f, nil
 }
 
-// numTablesToWrite returns the number of tables in `f`.
-// Calculates based on the number of tables will be written out.
-// NOTE that not all tables that are loaded are written out.
 // writesOS2 reports whether write outputs the OS/2 table: a table with fewer
 // than os2LenV0Microsoft bytes lacks fields every version requires, so it
 // can't be written as a valid table.
@@ -166,6 +163,9 @@ func (f *font) writesOS2() bool {
 	return f.os2 != nil && f.os2.hasTypoWinMetrics()
 }
 
+// numTablesToWrite returns the number of tables in `f`.
+// Calculates based on the number of tables will be written out.
+// NOTE that not all tables that are loaded are written out.
 func (f *font) numTablesToWrite() int {
 	var num int
 
