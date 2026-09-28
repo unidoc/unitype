@@ -7,7 +7,9 @@ package unitype
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -103,6 +105,32 @@ func (f *font) seekToTable(r *byteReader, tableName string) (tr *tableRecord, ha
 	}
 
 	return tr, true, nil
+}
+
+// maxBoundedTableLen caps how many bytes readTableBytes reads for one table,
+// so a corrupt table record can't drive an allocation of arbitrary size.
+const maxBoundedTableLen = 1024
+
+// readTableBytes seeks to tableName and returns up to its record's declared
+// length (capped at maxBoundedTableLen) of bytes, fewer if the file ends
+// early. Parsing from these bytes turns any overrun into an EOF instead of a
+// read into the next table. Only for small fixed-layout tables.
+func (f *font) readTableBytes(r *byteReader, tableName string) (buf []byte, has bool, err error) {
+	tr, has, err := f.seekToTable(r, tableName)
+	if err != nil || !has {
+		return nil, has, err
+	}
+
+	n := maxBoundedTableLen
+	if tr.length < maxBoundedTableLen {
+		n = int(tr.length)
+	}
+	buf = make([]byte, n)
+	read, err := io.ReadFull(r.reader, buf)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, true, err
+	}
+	return buf[:read], true, nil
 }
 
 func (f *font) writeTableRecords(w *byteWriter) error {

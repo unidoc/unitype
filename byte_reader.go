@@ -7,6 +7,7 @@ package unitype
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"io"
 
@@ -30,6 +31,19 @@ func newByteReader(rs io.ReadSeeker) *byteReader {
 	return &byteReader{
 		rs:     rs,
 		reader: bufio.NewReader(rs),
+	}
+}
+
+// minReadBufferSize is the smallest read buffer bufio allows.
+const minReadBufferSize = 16
+
+// newBytesReader returns a byteReader over the in-memory table b, with the
+// smallest read buffer rather than bufio's 4 KB default or a second copy of b.
+func newBytesReader(b []byte) *byteReader {
+	rs := bytes.NewReader(b)
+	return &byteReader{
+		rs:     rs,
+		reader: bufio.NewReaderSize(rs, minReadBufferSize),
 	}
 }
 

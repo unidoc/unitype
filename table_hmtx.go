@@ -6,6 +6,9 @@
 package unitype
 
 import (
+	"errors"
+	"io"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -25,7 +28,7 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		return nil, errRequiredField
 	}
 
-	_, has, err := f.seekToTable(r, "hmtx")
+	tr, has, err := f.seekToTable(r, "hmtx")
 	if err != nil {
 		return nil, err
 	}
@@ -34,9 +37,46 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		return nil, nil
 	}
 
+	// hmtx's size has no length field of its own (implied by hhea/maxp
+	// instead, per the OpenType spec). numberOfHMetrics is clamped to
+	// numGlyphs and to the entries the table holds, and hhea is updated to
+	// match so Write stays consistent; a short trailing lsb array is
+	// zero-padded, whether cut short by the declared length or by the end of
+	// the file.
+	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
+	if n := int(f.maxp.numGlyphs); numberOfHMetrics > n {
+		numberOfHMetrics = n
+	}
+	clampedByLength := false
+	if n := int64(tr.length) / 4; int64(numberOfHMetrics) > n {
+		numberOfHMetrics = int(n)
+		clampedByLength = true
+		if numberOfHMetrics == 0 {
+			logrus.Debug("hmtx table holds no advance widths")
+			return nil, errRangeCheck
+		}
+	}
+	if numberOfHMetrics != int(f.hhea.numberOfHMetrics) {
+		logrus.Debugf("hmtx: clamping numberOfHMetrics from %d to %d", f.hhea.numberOfHMetrics, numberOfHMetrics)
+		f.hhea.numberOfHMetrics = uint16(numberOfHMetrics)
+	}
+	wantHMetricsLen := 4 * numberOfHMetrics
+
+	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
+	readLsbLen := lsbLen
+	avail := (int64(tr.length) - int64(wantHMetricsLen)) / 2
+	if clampedByLength {
+		// The leftover bytes are part of a truncated hMetrics entry, not
+		// leftSideBearings.
+		avail = 0
+	}
+	if int64(readLsbLen) > avail {
+		logrus.Debug("hmtx leftSideBearings shorter than numGlyphs implies, zero-padding")
+		readLsbLen = int(avail)
+	}
+
 	t := &hmtxTable{}
 
-	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
 	for i := 0; i < numberOfHMetrics; i++ {
 		var lhm longHorMetric
 		err := r.read(&lhm.advanceWidth, &lhm.lsb)
@@ -47,12 +87,14 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 		t.hMetrics = append(t.hMetrics, lhm)
 	}
 
-	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
-	if lsbLen > 0 {
-		err = r.readSlice(&t.leftSideBearings, lsbLen)
-		if err != nil {
+	if readLsbLen > 0 {
+		err = r.readSlice(&t.leftSideBearings, readLsbLen)
+		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, err
 		}
+	}
+	if missing := lsbLen - len(t.leftSideBearings); missing > 0 {
+		t.leftSideBearings = append(t.leftSideBearings, make([]int16, missing)...)
 	}
 
 	return t, nil

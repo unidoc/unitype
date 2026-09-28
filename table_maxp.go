@@ -32,8 +32,8 @@ type maxpTable struct {
 	maxComponentDepth     uint16
 }
 
-func (f *font) parseMaxp(r *byteReader) (*maxpTable, error) {
-	_, has, err := f.seekToTable(r, "maxp")
+func (f *font) parseMaxp(fr *byteReader) (*maxpTable, error) {
+	buf, has, err := f.readTableBytes(fr, "maxp")
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +41,7 @@ func (f *font) parseMaxp(r *byteReader) (*maxpTable, error) {
 		logrus.Debug("maxp table not present")
 		return nil, nil
 	}
+	r := newBytesReader(buf)
 
 	t := &maxpTable{}
 

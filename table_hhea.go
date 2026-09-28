@@ -29,8 +29,8 @@ type hheaTable struct {
 	numberOfHMetrics    uint16 // Number of hMetric entries in 'hmtx' table.
 }
 
-func (f *font) parseHhea(r *byteReader) (*hheaTable, error) {
-	_, has, err := f.seekToTable(r, "hhea")
+func (f *font) parseHhea(fr *byteReader) (*hheaTable, error) {
+	buf, has, err := f.readTableBytes(fr, "hhea")
 	if err != nil {
 		return nil, err
 	}
@@ -38,6 +38,7 @@ func (f *font) parseHhea(r *byteReader) (*hheaTable, error) {
 		logrus.Debug("hhea table absent")
 		return nil, nil
 	}
+	r := newBytesReader(buf)
 
 	t := &hheaTable{}
 	err = r.read(&t.majorVersion, &t.minorVersion)
