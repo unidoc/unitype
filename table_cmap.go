@@ -506,17 +506,25 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 		if end > maxUnicodeCodePoint {
 			end = maxUnicodeCodePoint
 		}
-		if int64(start) <= prevEnd || start > end {
-			logrus.Debugf("cmap format 12 group %d-%d overlaps an earlier group or is beyond U+10FFFF, skipping", group.startCharCode, group.endCharCode)
+		if start > end || int64(end) <= prevEnd {
+			logrus.Debugf("cmap format 12 group %d-%d is covered by an earlier group or beyond U+10FFFF, skipping", group.startCharCode, group.endCharCode)
 			continue
 		}
-		prevEnd = int64(end)
-
 		if group.startGlyphID >= uint32(f.maxp.numGlyphs) {
 			logrus.Debugf("startGlyphID >= numGlyphs (%d >= %d)", group.startGlyphID, f.maxp.numGlyphs)
 			return nil, errRangeCheck
 		}
-		gid := GlyphIndex(group.startGlyphID)
+		first := uint64(group.startGlyphID)
+		if int64(start) <= prevEnd {
+			// Trim the part an earlier group already maps.
+			first += uint64(prevEnd + 1 - int64(start))
+			start = uint32(prevEnd + 1)
+		}
+		prevEnd = int64(end)
+		if first >= uint64(f.maxp.numGlyphs) {
+			continue
+		}
+		gid := GlyphIndex(first)
 		for charcode := start; charcode <= end; charcode++ {
 			if int(gid) >= int(f.maxp.numGlyphs) {
 				break

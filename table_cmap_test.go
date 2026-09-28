@@ -228,19 +228,21 @@ func cmap12Bytes(groups ...[3]uint32) []byte {
 	return buf.Bytes()
 }
 
-// TestParseCmapFormat12_Groups asserts groups map as declared in any order,
-// while an overlapping group and codes beyond U+10FFFF are skipped.
+// TestParseCmapFormat12_Groups asserts groups map as declared in any order;
+// a group overlapping an earlier one is trimmed to the codes it adds, one
+// covered by earlier groups is skipped, as are codes beyond U+10FFFF.
 func TestParseCmapFormat12_Groups(t *testing.T) {
 	f := &font{maxp: &maxpTable{numGlyphs: 10}}
 	data := cmap12Bytes(
 		[3]uint32{0x61, 0x62, 8},         // a-b -> 8-9, listed out of order
 		[3]uint32{0x41, 0x43, 1},         // A-C -> 1-3
-		[3]uint32{0x42, 0x44, 5},         // overlaps A-C: skipped
+		[3]uint32{0x42, 0x44, 5},         // overlaps A-C: trimmed to D -> 7
+		[3]uint32{0x41, 0x42, 8},         // covered by A-C: skipped
 		[3]uint32{0x110000, 0x110005, 7}, // beyond U+10FFFF: skipped
 	)
 	st, err := f.parseCmapSubtableFormat12(newByteReader(bytes.NewReader(data)), 3, 10)
 	require.NoError(t, err)
-	assert.Equal(t, map[rune]GlyphIndex{'A': 1, 'B': 2, 'C': 3, 'a': 8, 'b': 9}, st.cmap)
+	assert.Equal(t, map[rune]GlyphIndex{'A': 1, 'B': 2, 'C': 3, 'D': 7, 'a': 8, 'b': 9}, st.cmap)
 }
 
 // TestParseCmapFormat12_ManyGroups asserts a table with many wide groups
@@ -265,4 +267,18 @@ func TestParseCmapFormat12_StartGlyphIDRange(t *testing.T) {
 	f := &font{maxp: &maxpTable{numGlyphs: 10}}
 	_, err := f.parseCmapSubtableFormat12(newByteReader(bytes.NewReader(cmap12Bytes([3]uint32{0x41, 0x41, 0x10001}))), 3, 10)
 	assert.ErrorIs(t, err, errRangeCheck)
+}
+
+// TestParseCmapFormat12_TrimPastGlyphs asserts a group trimmed so that its
+// first glyph falls past numGlyphs maps nothing, rather than erroring.
+func TestParseCmapFormat12_TrimPastGlyphs(t *testing.T) {
+	f := &font{maxp: &maxpTable{numGlyphs: 10}}
+	data := cmap12Bytes(
+		[3]uint32{0x41, 0x50, 1}, // A-P -> 1-9 (stops at numGlyphs)
+		[3]uint32{0x41, 0x60, 9}, // trimmed to Q-`, first glyph 9+16 >= numGlyphs
+	)
+	st, err := f.parseCmapSubtableFormat12(newByteReader(bytes.NewReader(data)), 3, 10)
+	require.NoError(t, err)
+	_, hasQ := st.cmap['Q']
+	assert.False(t, hasQ)
 }
