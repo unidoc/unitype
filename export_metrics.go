@@ -22,7 +22,7 @@ type OS2Metrics struct {
 	HasTypoWinMetrics bool  // true if TypoAscender..WinDescent are from the source table, not absent-and-zero
 	XHeight           int16 // sxHeight; only defined for Version >= 2, else 0
 	CapHeight         int16 // sCapHeight; only defined for Version >= 2, else 0
-	UseTypoMetrics    bool  // fsSelection bit 7; false unless Version >= 4 and HasTypoWinMetrics
+	UseTypoMetrics    bool  // fsSelection bit 7; false unless Version >= 4 and the table has version 4's fields
 	Present           bool  // false if the font has no OS/2 table
 }
 
@@ -57,7 +57,7 @@ func (f *Font) OS2Metrics() OS2Metrics {
 		m.TypoLineGap = o.sTypoLineGap
 		m.WinAscent = o.usWinAscent
 		m.WinDescent = o.usWinDescent
-		m.UseTypoMetrics = o.version >= 4 && (o.fsSelection&0x0080) != 0
+		m.UseTypoMetrics = o.writtenVersion() >= 4 && (o.fsSelection&0x0080) != 0
 	}
 	if o.hasV2Metrics() {
 		m.XHeight = o.sxHeight

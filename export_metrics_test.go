@@ -92,6 +92,19 @@ func TestOS2Metrics_UseTypoMetricsVersionGate(t *testing.T) {
 
 	v4BitClear := newFont(4, 0x0000)
 	assert.False(t, v4BitClear.OS2Metrics().UseTypoMetrics)
+
+	// A v4 table cut short of version 4's fields is written as an earlier
+	// version with bit 7 cleared, so it reports false before and after Write.
+	short := &Font{font: &font{os2: &os2Table{version: 4, fsSelection: 0x0080, length: os2LenV1, panose10: make([]uint8, 10)}}}
+	assert.False(t, short.OS2Metrics().UseTypoMetrics)
+	var buf bytes.Buffer
+	w := newByteWriter(&buf)
+	require.NoError(t, short.font.writeOS2(w))
+	require.NoError(t, w.flush())
+	f := &font{trec: &tableRecords{trMap: map[string]*tableRecord{"OS/2": {offset: 0, length: uint32(buf.Len())}}}}
+	out, err := f.parseOS2Table(newByteReader(bytes.NewReader(buf.Bytes())))
+	require.NoError(t, err)
+	assert.False(t, (&Font{font: &font{os2: out}}).OS2Metrics().UseTypoMetrics)
 }
 
 // truncatedOS2Bytes returns payloadLen bytes of an OS/2 table claiming
