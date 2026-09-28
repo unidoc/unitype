@@ -562,7 +562,9 @@ func (f *Font) Optimize() error {
 	return nil
 }
 
-// Write writes the font to `w`.
+// Write writes the font to `w`. An OS/2 table with fewer than 78 bytes
+// present is not written: under 68 bytes it was treated as absent on parse,
+// and at 68-77 bytes it lacks the sTypo*/usWin* fields every version requires.
 func (f *Font) Write(w io.Writer) error {
 	bw := newByteWriter(w)
 	err := f.font.write(bw)
