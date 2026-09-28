@@ -43,16 +43,16 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 	// whether cut short by the declared length or by the end of the file.
 	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
 	wantHMetricsLen := 4 * numberOfHMetrics
-	if int(tr.length) < wantHMetricsLen {
+	if int64(tr.length) < int64(wantHMetricsLen) {
 		logrus.Debug("hmtx table shorter than numberOfHMetrics implies")
 		return nil, errRangeCheck
 	}
 
 	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
 	readLsbLen := lsbLen
-	if avail := (int(tr.length) - wantHMetricsLen) / 2; readLsbLen > avail {
+	if avail := (int64(tr.length) - int64(wantHMetricsLen)) / 2; int64(readLsbLen) > avail {
 		logrus.Debug("hmtx leftSideBearings shorter than numGlyphs implies, zero-padding")
-		readLsbLen = avail
+		readLsbLen = int(avail)
 	}
 
 	t := &hmtxTable{}
