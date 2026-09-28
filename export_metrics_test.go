@@ -299,11 +299,52 @@ func TestParseOS2Table_FileEndsEarly(t *testing.T) {
 	require.NoError(t, f.writeOS2(w))
 	require.NoError(t, w.flush())
 	assert.Equal(t, int(os2LenV0Microsoft), buf.Len())
+	assert.Equal(t, []byte{0, 0}, buf.Bytes()[:2], "written as version 0, the highest version whose fields are present")
 
 	short := &font{trec: declared}
 	table, err = short.parseOS2Table(newByteReader(bytes.NewReader(make([]byte, os2LenV0Apple-1))))
 	require.NoError(t, err)
 	assert.Nil(t, table)
+}
+
+// TestOS2_WrittenVersion asserts writeOS2 lowers the version to the highest
+// one whose fields are present, at most 5, and clears fsSelection bits 7-9
+// below version 4.
+func TestOS2_WrittenVersion(t *testing.T) {
+	tests := []struct {
+		version, want uint16
+		length        uint32
+		size          int
+	}{
+		{4, 0, 80, os2LenV0Microsoft},
+		{4, 1, 86, os2LenV1},
+		{4, 4, 96, os2LenV2to4},
+		{3, 3, 96, os2LenV2to4},
+		{5, 4, 96, os2LenV2to4},
+		{5, 5, 100, os2LenV5},
+		{7, 5, 100, os2LenV5},
+		{0, 0, 100, os2LenV0Microsoft},
+		{2, 2, 100, os2LenV2to4},
+	}
+	for _, tt := range tests {
+		table := &os2Table{version: tt.version, length: tt.length, fsSelection: 0x03C1, panose10: make([]uint8, 10)}
+		var buf bytes.Buffer
+		w := newByteWriter(&buf)
+		f := &font{os2: table}
+		require.NoError(t, f.writeOS2(w))
+		require.NoError(t, w.flush())
+		require.Equal(t, tt.size, buf.Len(), "version %d, %d bytes", tt.version, tt.length)
+
+		reparsed := &font{trec: &tableRecords{trMap: map[string]*tableRecord{"OS/2": {offset: 0, length: uint32(buf.Len())}}}}
+		out, err := reparsed.parseOS2Table(newByteReader(bytes.NewReader(buf.Bytes())))
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, out.version, "version %d, %d bytes", tt.version, tt.length)
+		wantSel := uint16(0x03C1)
+		if tt.want < 4 {
+			wantSel = 0x0041
+		}
+		assert.Equal(t, wantSel, out.fsSelection, "version %d, %d bytes", tt.version, tt.length)
+	}
 }
 
 // TestGlyphAdvance_TrailingInheritance asserts gids past numberOfHMetrics

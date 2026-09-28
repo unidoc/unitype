@@ -215,16 +215,45 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 	return t, nil
 }
 
+// writtenVersion returns the version writeOS2 writes: t.version, lowered to
+// the highest version (at most 5) whose fields t has, so the table is never
+// shorter than its version requires.
+func (t *os2Table) writtenVersion() uint16 {
+	v := t.version
+	switch {
+	case t.hasV5Metrics():
+		if v > 5 {
+			v = 5
+		}
+	case t.hasV2Metrics():
+		if v > 4 {
+			v = 4
+		}
+	case t.hasV1Metrics():
+		v = 1
+	default:
+		v = 0
+	}
+	return v
+}
+
 // writeOS2 mirrors parseOS2Table's field-presence boundaries (hasTypoWinMetrics/
 // hasV1Metrics/hasV2Metrics/hasV5Metrics), not just t.version, so a round trip
-// never fabricates fields the source table never had.
+// never fabricates fields the source table never had. The version is written as
+// writtenVersion, and fsSelection bits 7-9, reserved before version 4, are
+// cleared when writing an earlier version.
 func (f *font) writeOS2(w *byteWriter) error {
 	if f.os2 == nil {
 		return nil
 	}
 	t := f.os2
+	version := t.writtenVersion()
+	fsSelection := t.fsSelection
+	if version < 4 {
+		fsSelection &^= 0x0380
+	}
 
-	err := w.write(t.version, t.xAvgCharWidth, t.usWeightClass, t.usWidthClass, t.fsType)
+	err := w.write(version, t.xAvgCharWidth, t.usWeightClass, t.usWidthClass, t.fsType)
 	if err != nil {
 		return err
 	}
@@ -253,7 +282,7 @@ func (f *font) writeOS2(w *byteWriter) error {
 	if err != nil {
 		return err
 	}
-	err = w.write(t.achVendID, t.fsSelection, t.usFirstCharIndex, t.usLastCharIndex)
+	err = w.write(t.achVendID, fsSelection, t.usFirstCharIndex, t.usLastCharIndex)
 	if err != nil {
 		return err
 	}
