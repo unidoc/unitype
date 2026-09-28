@@ -19,6 +19,11 @@ import (
 type byteReader struct {
 	rs     io.ReadSeeker
 	reader *bufio.Reader
+
+	// size is the stream's size, recorded by remaining the first time it's
+	// needed (sizeKnown).
+	size      int64
+	sizeKnown bool
 }
 
 func newByteReader(rs io.ReadSeeker) *byteReader {
@@ -52,14 +57,17 @@ func (r *byteReader) remaining() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	end, err := r.rs.Seek(0, io.SeekEnd)
-	if err != nil {
-		return 0, err
+	if !r.sizeKnown {
+		end, err := r.rs.Seek(0, io.SeekEnd)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := r.rs.Seek(pos, io.SeekStart); err != nil {
+			return 0, err
+		}
+		r.size, r.sizeKnown = end, true
 	}
-	if _, err := r.rs.Seek(pos, io.SeekStart); err != nil {
-		return 0, err
-	}
-	return end - pos + int64(r.reader.Buffered()), nil
+	return r.size - pos + int64(r.reader.Buffered()), nil
 }
 
 // Skip skips over `n` bytes.

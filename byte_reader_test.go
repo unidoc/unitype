@@ -33,3 +33,28 @@ func TestReadBytes_LargeLength(t *testing.T) {
 	assert.ErrorIs(t, newReader().readBytes(&b, size-1), io.ErrUnexpectedEOF)
 	assert.ErrorIs(t, newReader().readBytes(&b, -1), errRangeCheck)
 }
+
+// seekCounter counts Seek calls to the end of the stream.
+type seekCounter struct {
+	*bytes.Reader
+	toEnd int
+}
+
+func (s *seekCounter) Seek(offset int64, whence int) (int64, error) {
+	if whence == io.SeekEnd {
+		s.toEnd++
+	}
+	return s.Reader.Seek(offset, whence)
+}
+
+// TestReadBytes_SizeLookedUpOnce asserts readBytes looks up the stream size
+// once, not on every read over maxUncheckedReadLen.
+func TestReadBytes_SizeLookedUpOnce(t *testing.T) {
+	sc := &seekCounter{Reader: bytes.NewReader(make([]byte, 4*maxUncheckedReadLen))}
+	r := newByteReader(sc)
+	var b []byte
+	for i := 0; i < 3; i++ {
+		require.NoError(t, r.readBytes(&b, maxUncheckedReadLen+1))
+	}
+	assert.Equal(t, 1, sc.toEnd)
+}
