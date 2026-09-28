@@ -183,6 +183,7 @@ func TestParseHmtx_AcceptsExactLength(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, table.hMetrics, 3)
 	assert.Len(t, table.leftSideBearings, 2)
+	assert.Equal(t, uint16(3), f.hhea.numberOfHMetrics, "hhea is left alone when no clamping is needed")
 }
 
 // TestParseHmtx_PadsShortLeftSideBearings asserts a record with complete
