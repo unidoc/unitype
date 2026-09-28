@@ -242,8 +242,12 @@ func (f compositeGlyphFlag) IsSet(flag compositeGlyphFlag) bool {
 	return f&flag != 0
 }
 
-// Returns list of glyphs that `gid` depends on (other than itself).
+// Returns list of glyphs that `gid` depends on (other than itself). A font
+// without a glyf table has no component glyphs.
 func (glyf *glyfTable) GetComponents(gid GlyphIndex) ([]GlyphIndex, error) {
+	if glyf == nil {
+		return nil, nil
+	}
 	if int(gid) >= len(glyf.descs) {
 		logrus.Debugf("GID not accessible (%d > %d)", gid, len(glyf.descs))
 		return nil, nil
