@@ -38,15 +38,27 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 	}
 
 	// hmtx's size has no length field of its own (implied by hhea/maxp
-	// instead, per the OpenType spec) - reject a table too short for its
-	// hMetrics, but zero-pad rather than reject a short trailing lsb array,
-	// whether cut short by the declared length or by the end of the file.
+	// instead, per the OpenType spec). numberOfHMetrics is clamped to
+	// numGlyphs and to the entries the table holds, and hhea is updated to
+	// match so Write stays consistent; a short trailing lsb array is
+	// zero-padded, whether cut short by the declared length or by the end of
+	// the file.
 	numberOfHMetrics := int(f.hhea.numberOfHMetrics)
-	wantHMetricsLen := 4 * numberOfHMetrics
-	if int64(tr.length) < int64(wantHMetricsLen) {
-		logrus.Debug("hmtx table shorter than numberOfHMetrics implies")
-		return nil, errRangeCheck
+	if n := int(f.maxp.numGlyphs); numberOfHMetrics > n {
+		numberOfHMetrics = n
 	}
+	if n := int64(tr.length) / 4; int64(numberOfHMetrics) > n {
+		numberOfHMetrics = int(n)
+		if numberOfHMetrics == 0 {
+			logrus.Debug("hmtx table holds no advance widths")
+			return nil, errRangeCheck
+		}
+	}
+	if numberOfHMetrics != int(f.hhea.numberOfHMetrics) {
+		logrus.Debugf("hmtx: clamping numberOfHMetrics from %d to %d", f.hhea.numberOfHMetrics, numberOfHMetrics)
+		f.hhea.numberOfHMetrics = uint16(numberOfHMetrics)
+	}
+	wantHMetricsLen := 4 * numberOfHMetrics
 
 	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
 	readLsbLen := lsbLen

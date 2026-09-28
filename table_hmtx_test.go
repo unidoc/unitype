@@ -131,27 +131,43 @@ func TestOptimizeHmtxTable(t *testing.T) {
 	}
 }
 
-// TestParseHmtx_RejectsLengthMismatch asserts an hmtx record shorter than
-// 4*numberOfHMetrics is rejected rather than read past its end.
-func TestParseHmtx_RejectsLengthMismatch(t *testing.T) {
-	// 3 hMetrics need 12 bytes; the record declares 10.
-	f := &font{
-		maxp: &maxpTable{numGlyphs: 5},
-		hhea: &hheaTable{numberOfHMetrics: 3},
-		trec: &tableRecords{
-			trMap: map[string]*tableRecord{
-				"hmtx": {offset: 0, length: 10},
-			},
-		},
+// TestParseHmtx_ClampsNumberOfHMetrics asserts numberOfHMetrics is clamped
+// to numGlyphs and to the entries the table holds, with hhea updated to
+// match, and that a table holding no complete entry is rejected.
+func TestParseHmtx_ClampsNumberOfHMetrics(t *testing.T) {
+	newFont := func(numGlyphs, numberOfHMetrics uint16, length uint32) *font {
+		return &font{
+			maxp: &maxpTable{numGlyphs: numGlyphs},
+			hhea: &hheaTable{numberOfHMetrics: numberOfHMetrics},
+			trec: &tableRecords{trMap: map[string]*tableRecord{"hmtx": {offset: 0, length: length}}},
+		}
 	}
-	data := bytes.Repeat([]byte{0xFF}, 32)
-	_, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	data := make([]byte, 2000)
+
+	// More metrics than glyphs: a full entry for each of the 250 glyphs.
+	f := newFont(250, 300, 1000)
+	table, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	require.NoError(t, err)
+	assert.Len(t, table.hMetrics, 250)
+	assert.Empty(t, table.leftSideBearings)
+	assert.Equal(t, uint16(250), f.hhea.numberOfHMetrics)
+
+	// A table too short for its metrics: 10 bytes hold 2 of the 3 entries,
+	// and the other 3 glyphs get zero-padded side bearings.
+	f = newFont(5, 3, 10)
+	table, err = f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	require.NoError(t, err)
+	assert.Len(t, table.hMetrics, 2)
+	assert.Len(t, table.leftSideBearings, 3)
+	assert.Equal(t, uint16(2), f.hhea.numberOfHMetrics)
+
+	// No complete entry at all.
+	_, err = newFont(5, 3, 2).parseHmtx(newByteReader(bytes.NewReader(data)))
 	assert.ErrorIs(t, err, errRangeCheck)
 }
 
-// TestParseHmtx_AcceptsExactLength is the positive-path complement to
-// TestParseHmtx_RejectsLengthMismatch: a table record whose declared length
-// exactly matches what numberOfHMetrics/numGlyphs imply must parse.
+// TestParseHmtx_AcceptsExactLength asserts a table record whose declared
+// length exactly matches what numberOfHMetrics/numGlyphs imply parses.
 func TestParseHmtx_AcceptsExactLength(t *testing.T) {
 	f := &font{
 		maxp: &maxpTable{numGlyphs: 5},
