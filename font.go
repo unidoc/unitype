@@ -382,9 +382,6 @@ func (f *font) write(w *byteWriter) error {
 		}
 
 		// os2.
-		if f.os2 != nil && !f.writesOS2() {
-			logrus.Warn("OS/2 table lacks the sTypo*/usWin* fields every version requires, omitting it")
-		}
 		if f.writesOS2() {
 			offset = startOffset + bufw.flushedLen
 			err = f.writeOS2(bufw)
@@ -396,6 +393,8 @@ func (f *font) write(w *byteWriter) error {
 			if err != nil {
 				return err
 			}
+		} else if f.os2 != nil {
+			logrus.Warn("OS/2 table lacks the sTypo*/usWin* fields every version requires, omitting it")
 		}
 
 		// post
