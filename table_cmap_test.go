@@ -422,3 +422,25 @@ func TestParseCmap_TotalMappingsCapped(t *testing.T) {
 	cmap, _ := parseCmapBytes(t, cmapTableBytes(records, subtables...), 0xFFFF)
 	assert.Len(t, cmap.subtableKeys, 2, "the first subtable fits the cap; the second passes it; the rest are skipped")
 }
+
+// TestWriteCmap_SkippedSubtable asserts a cmap whose parse skipped an
+// encoding record (here an unsupported format 14 subtable) is written with a
+// table count matching the encoding records written, so it parses back.
+func TestWriteCmap_SkippedSubtable(t *testing.T) {
+	data := cmapTableBytes([][3]uint16{{3, 10, 0}, {0, 5, 1}}, cmap12Bytes([3]uint32{'a', 'c', 1}), cmap12Bytes([3]uint32{'x', 'x', 1}))
+	off := binary.BigEndian.Uint32(data[4+8+4:])
+	binary.BigEndian.PutUint16(data[off:], 14)
+	cmap, _ := parseCmapBytes(t, data, 10)
+	require.Equal(t, []string{"12,3,10"}, cmap.subtableKeys)
+
+	var buf bytes.Buffer
+	w := newByteWriter(&buf)
+	require.NoError(t, (&font{cmap: cmap}).writeCmap(w))
+	require.NoError(t, w.flush())
+	written := buf.Bytes()
+	assert.Equal(t, uint16(1), binary.BigEndian.Uint16(written[2:4]), "numTables")
+
+	reparsed, _ := parseCmapBytes(t, written, 10)
+	assert.Equal(t, cmap.subtableKeys, reparsed.subtableKeys)
+	assert.Equal(t, cmap.subtables["12,3,10"].cmap, reparsed.subtables["12,3,10"].cmap)
+}

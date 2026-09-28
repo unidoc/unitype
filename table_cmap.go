@@ -632,8 +632,6 @@ func (f *font) writeCmap(w *byteWriter) error {
 	}
 	t := f.cmap
 
-	err := w.write(t.version, t.numTables)
-
 	// Write the cmap subtables to an in-memory mock buffer to calculate offsets.
 	var mockBuffer bytes.Buffer
 	mockWriter := newByteWriter(&mockBuffer)
@@ -677,7 +675,14 @@ func (f *font) writeCmap(w *byteWriter) error {
 			encodingRecords = append(encodingRecords, rec)
 		}
 	}
-	err = mockWriter.flush()
+	err := mockWriter.flush()
+	if err != nil {
+		return err
+	}
+
+	// The table count is that of the encoding records written, which leaves
+	// out any the parse skipped or whose format is not written.
+	err = w.write(t.version, uint16(len(encodingRecords)))
 	if err != nil {
 		return err
 	}
