@@ -47,8 +47,10 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 	if n := int(f.maxp.numGlyphs); numberOfHMetrics > n {
 		numberOfHMetrics = n
 	}
+	clampedByLength := false
 	if n := int64(tr.length) / 4; int64(numberOfHMetrics) > n {
 		numberOfHMetrics = int(n)
+		clampedByLength = true
 		if numberOfHMetrics == 0 {
 			logrus.Debug("hmtx table holds no advance widths")
 			return nil, errRangeCheck
@@ -62,7 +64,13 @@ func (f *font) parseHmtx(r *byteReader) (*hmtxTable, error) {
 
 	lsbLen := int(f.maxp.numGlyphs) - numberOfHMetrics
 	readLsbLen := lsbLen
-	if avail := (int64(tr.length) - int64(wantHMetricsLen)) / 2; int64(readLsbLen) > avail {
+	avail := (int64(tr.length) - int64(wantHMetricsLen)) / 2
+	if clampedByLength {
+		// The leftover bytes are part of a truncated hMetrics entry, not
+		// leftSideBearings.
+		avail = 0
+	}
+	if int64(readLsbLen) > avail {
 		logrus.Debug("hmtx leftSideBearings shorter than numGlyphs implies, zero-padding")
 		readLsbLen = int(avail)
 	}

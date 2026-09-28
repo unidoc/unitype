@@ -152,13 +152,14 @@ func TestParseHmtx_ClampsNumberOfHMetrics(t *testing.T) {
 	assert.Empty(t, table.leftSideBearings)
 	assert.Equal(t, uint16(250), f.hhea.numberOfHMetrics)
 
-	// A table too short for its metrics: 10 bytes hold 2 of the 3 entries,
-	// and the other 3 glyphs get zero-padded side bearings.
+	// A table too short for its metrics: 10 bytes hold 2 of the 3 entries.
+	// Bytes 8-9 start the truncated third entry, so the other 3 glyphs get
+	// zero-padded side bearings rather than reading them.
 	f = newFont(5, 3, 10)
-	table, err = f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	table, err = f.parseHmtx(newByteReader(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 2000))))
 	require.NoError(t, err)
 	assert.Len(t, table.hMetrics, 2)
-	assert.Len(t, table.leftSideBearings, 3)
+	assert.Equal(t, []int16{0, 0, 0}, table.leftSideBearings)
 	assert.Equal(t, uint16(2), f.hhea.numberOfHMetrics)
 
 	// No complete entry at all.
