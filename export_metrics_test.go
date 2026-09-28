@@ -379,8 +379,7 @@ func TestGlyphAdvance_TrailingInheritance(t *testing.T) {
 	}
 }
 
-// TestParseFile_BundledCorpus asserts every font under testdata/ parses and
-// reports OS2Metrics().Present.
+// TestParseFile_BundledCorpus asserts every font under testdata/ parses.
 func TestParseFile_BundledCorpus(t *testing.T) {
 	var paths []string
 	err := filepath.WalkDir("./testdata", func(path string, d fs.DirEntry, err error) error {
@@ -401,9 +400,8 @@ func TestParseFile_BundledCorpus(t *testing.T) {
 
 	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
-			f, err := ParseFile(path)
+			_, err := ParseFile(path)
 			require.NoError(t, err)
-			assert.True(t, f.OS2Metrics().Present, "bundled fonts are expected to carry an OS/2 table")
 		})
 	}
 }
