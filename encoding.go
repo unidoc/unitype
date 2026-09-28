@@ -156,13 +156,34 @@ func (e cmapEncoding) GetRuneDecoder() runeDecoder {
 	return runeDecoder{
 		Decoder:       d,
 		charcodeBytes: charcodeBytes,
+		encoding:      e,
 	}
 }
 
 // runeDecoder decodes runes from encoded byte data.
 type runeDecoder struct {
 	*encoding.Decoder
-	charcodeBytes int // number of bytes per charcode in TTF data.
+	charcodeBytes int          // number of bytes per charcode in TTF data.
+	encoding      cmapEncoding // encoding the decoder was created for.
+}
+
+// decodeCharcode returns the rune for `charcode`, as DecodeRune(ToBytes(charcode))
+// would. UCS-2 and UCS-4 are decoded directly, without allocating: surrogates,
+// and for UCS-4 values beyond U+10FFFF, decode to utf8.RuneError.
+func (d runeDecoder) decodeCharcode(charcode uint32) rune {
+	switch d.encoding {
+	case cmapEncodingUCS2:
+		if c := charcode & 0xFFFF; c < 0xD800 || c > 0xDFFF {
+			return rune(c)
+		}
+		return utf8.RuneError
+	case cmapEncodingUCS4:
+		if charcode <= 0x10FFFF && (charcode < 0xD800 || charcode > 0xDFFF) {
+			return rune(charcode)
+		}
+		return utf8.RuneError
+	}
+	return d.DecodeRune(d.ToBytes(charcode))
 }
 
 // ToBytes encodes `charcode` into bytes as represented in TTF data.

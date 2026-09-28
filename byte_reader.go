@@ -8,7 +8,6 @@ package unitype
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
 	"io"
 
 	"github.com/sirupsen/logrus"
@@ -49,13 +48,14 @@ func (r byteReader) Offset() int64 {
 	return offset
 }
 
-// SeekTo seeks to offset.
+// SeekTo seeks to offset, discarding any buffered data but reusing the
+// read buffer.
 func (r *byteReader) SeekTo(offset int64) error {
 	_, err := r.rs.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
 	}
-	r.reader = bufio.NewReader(r.rs)
+	r.reader.Reset(r.rs)
 	return nil
 }
 
@@ -230,90 +230,92 @@ func (r byteReader) read(fields ...interface{}) error {
 	return nil
 }
 
-func (r byteReader) readF2dot14() (f2dot14, error) {
-	b := make([]byte, 2)
-	_, err := io.ReadFull(r.reader, b)
-	if err != nil {
+// readBE reads an n-byte big-endian unsigned integer (n <= 8) from the read
+// buffer without allocating. Like binary.Read, it returns io.EOF if no bytes
+// remain and io.ErrUnexpectedEOF if fewer than n do.
+func (r byteReader) readBE(n int) (uint64, error) {
+	b, err := r.reader.Peek(n)
+	if len(b) < n {
+		if err == io.EOF && len(b) > 0 {
+			err = io.ErrUnexpectedEOF
+		}
+		_, _ = r.reader.Discard(len(b))
 		return 0, err
 	}
-	u16 := binary.BigEndian.Uint16(b)
-	return f2dot14(u16), nil
+	var v uint64
+	for _, c := range b {
+		v = v<<8 | uint64(c)
+	}
+	_, err = r.reader.Discard(n)
+	return v, err
+}
+
+func (r byteReader) readF2dot14() (f2dot14, error) {
+	v, err := r.readBE(2)
+	return f2dot14(v), err
 }
 
 func (r byteReader) readFixed() (fixed, error) {
-	var val fixed
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(4)
+	return fixed(v), err
 }
 
 func (r byteReader) readFword() (fword, error) {
-	var val fword
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(2)
+	return fword(v), err
 }
 
 func (r byteReader) readUint8() (uint8, error) {
-	var val uint8
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(1)
+	return uint8(v), err
 }
 
 func (r byteReader) readUint16() (uint16, error) {
-	var val uint16
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(2)
+	return uint16(v), err
 }
 
 func (r byteReader) readInt8() (int8, error) {
-	var val int8
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(1)
+	return int8(v), err
 }
 
 func (r byteReader) readInt16() (int16, error) {
-	var val int16
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(2)
+	return int16(v), err
 }
 
 func (r byteReader) readInt32() (int32, error) {
-	var val int32
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(4)
+	return int32(v), err
 }
 
 func (r byteReader) readUint32() (uint32, error) {
-	var val uint32
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(4)
+	return uint32(v), err
 }
 
 func (r byteReader) readTag() (tag, error) {
-	var val tag
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(4)
+	return tag{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}, err
 }
 
 func (r byteReader) readUfword() (ufword, error) {
-	var val ufword
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(2)
+	return ufword(v), err
 }
 
 func (r byteReader) readLongdatetime() (longdatetime, error) {
-	var val longdatetime
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(8)
+	return longdatetime(v), err
 }
 
 func (r byteReader) readOffset16() (offset16, error) {
-	var val offset16
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(2)
+	return offset16(v), err
 }
 
 func (r byteReader) readOffset32() (offset32, error) {
-	var val offset32
-	err := binary.Read(r.reader, binary.BigEndian, &val)
-	return val, err
+	v, err := r.readBE(4)
+	return offset32(v), err
 }
