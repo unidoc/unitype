@@ -20,8 +20,8 @@ type OS2Metrics struct {
 	WinAscent         uint16
 	WinDescent        uint16
 	HasTypoWinMetrics bool  // true if TypoAscender..WinDescent are from the source table, not absent-and-zero
-	XHeight           int16 // sxHeight; only defined for Version >= 2, else 0
-	CapHeight         int16 // sCapHeight; only defined for Version >= 2, else 0
+	XHeight           int16 // sxHeight; 0 below Version 2, or if the table ends before it (under 96 bytes)
+	CapHeight         int16 // sCapHeight; 0 below Version 2, or if the table ends before it (under 96 bytes)
 	UseTypoMetrics    bool  // fsSelection bit 7; false unless Version >= 4 and the table has version 4's fields
 	Present           bool  // false if the font has no OS/2 table
 }
