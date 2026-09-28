@@ -35,9 +35,8 @@ type headTable struct {
 }
 
 // parse the font's *head* table from `r` in the context of `f`.
-// TODO(gunnsth): Read the table as bytes first and then process? Probably easier in terms of checksumming etc.
-func (f *font) parseHead(r *byteReader) (*headTable, error) {
-	_, has, err := f.seekToTable(r, "head")
+func (f *font) parseHead(fr *byteReader) (*headTable, error) {
+	buf, has, err := f.readTableBytes(fr, "head")
 	if err != nil {
 		return nil, err
 	}
@@ -45,6 +44,7 @@ func (f *font) parseHead(r *byteReader) (*headTable, error) {
 		// Does not have head.
 		return nil, nil
 	}
+	r := newBytesReader(buf)
 
 	t := &headTable{}
 	err = r.read(&t.majorVersion, &t.minorVersion, &t.fontRevision)

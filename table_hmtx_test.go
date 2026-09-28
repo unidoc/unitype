@@ -1,9 +1,11 @@
 package unitype
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOptimizeHmtxTable(t *testing.T) {
@@ -127,4 +129,106 @@ func TestOptimizeHmtxTable(t *testing.T) {
 		assert.Equal(t, tcase.expLSB, tcase.fnt.hmtx.leftSideBearings)
 		assert.Equal(t, tcase.exphMetrics, tcase.fnt.hmtx.hMetrics)
 	}
+}
+
+// TestParseHmtx_ClampsNumberOfHMetrics asserts numberOfHMetrics is clamped
+// to numGlyphs and to the entries the table holds, with hhea updated to
+// match, and that a table holding no complete entry is rejected.
+func TestParseHmtx_ClampsNumberOfHMetrics(t *testing.T) {
+	newFont := func(numGlyphs, numberOfHMetrics uint16, length uint32) *font {
+		return &font{
+			maxp: &maxpTable{numGlyphs: numGlyphs},
+			hhea: &hheaTable{numberOfHMetrics: numberOfHMetrics},
+			trec: &tableRecords{trMap: map[string]*tableRecord{"hmtx": {offset: 0, length: length}}},
+		}
+	}
+	data := make([]byte, 2000)
+
+	// More metrics than glyphs: a full entry for each of the 250 glyphs.
+	f := newFont(250, 300, 1000)
+	table, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	require.NoError(t, err)
+	assert.Len(t, table.hMetrics, 250)
+	assert.Empty(t, table.leftSideBearings)
+	assert.Equal(t, uint16(250), f.hhea.numberOfHMetrics)
+
+	// A table too short for its metrics: 10 bytes hold 2 of the 3 entries.
+	// Bytes 8-9 start the truncated third entry, so the other 3 glyphs get
+	// zero-padded side bearings rather than reading them.
+	f = newFont(5, 3, 10)
+	table, err = f.parseHmtx(newByteReader(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 2000))))
+	require.NoError(t, err)
+	assert.Len(t, table.hMetrics, 2)
+	assert.Equal(t, []int16{0, 0, 0}, table.leftSideBearings)
+	assert.Equal(t, uint16(2), f.hhea.numberOfHMetrics)
+
+	// No complete entry at all.
+	_, err = newFont(5, 3, 2).parseHmtx(newByteReader(bytes.NewReader(data)))
+	assert.ErrorIs(t, err, errRangeCheck)
+}
+
+// TestParseHmtx_AcceptsExactLength asserts a table record whose declared
+// length exactly matches what numberOfHMetrics/numGlyphs imply parses.
+func TestParseHmtx_AcceptsExactLength(t *testing.T) {
+	f := &font{
+		maxp: &maxpTable{numGlyphs: 5},
+		hhea: &hheaTable{numberOfHMetrics: 3},
+		trec: &tableRecords{
+			trMap: map[string]*tableRecord{
+				"hmtx": {offset: 0, length: 16}, // 3*4 + 2*2
+			},
+		},
+	}
+	data := bytes.Repeat([]byte{0x00}, 16)
+	table, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	require.NoError(t, err)
+	assert.Len(t, table.hMetrics, 3)
+	assert.Len(t, table.leftSideBearings, 2)
+	assert.Equal(t, uint16(3), f.hhea.numberOfHMetrics, "hhea is left alone when no clamping is needed")
+}
+
+// TestParseHmtx_PadsShortLeftSideBearings asserts a record with complete
+// hMetrics but a short trailing leftSideBearings array is zero-padded to
+// numGlyphs-numberOfHMetrics entries rather than rejected.
+func TestParseHmtx_PadsShortLeftSideBearings(t *testing.T) {
+	f := &font{
+		maxp: &maxpTable{numGlyphs: 5},
+		hhea: &hheaTable{numberOfHMetrics: 3},
+		trec: &tableRecords{
+			trMap: map[string]*tableRecord{
+				// 12 bytes of hMetrics, then room for 1 of the 2 lsb entries.
+				"hmtx": {offset: 0, length: 14},
+			},
+		},
+	}
+	data := bytes.Repeat([]byte{0xAB}, 32)
+	table, err := f.parseHmtx(newByteReader(bytes.NewReader(data)))
+	require.NoError(t, err)
+	assert.Len(t, table.hMetrics, 3)
+	require.Len(t, table.leftSideBearings, 2)
+	assert.Equal(t, int16(-21589), table.leftSideBearings[0], "read from the table")
+	assert.Equal(t, int16(0), table.leftSideBearings[1], "padded, not read past the declared length")
+}
+
+// TestParseHmtx_FileEndsEarly asserts an hmtx whose declared length fits but
+// whose file ends inside the trailing leftSideBearings keeps the entries read
+// and zero-pads the rest, while a file ending inside hMetrics still fails.
+func TestParseHmtx_FileEndsEarly(t *testing.T) {
+	newFont := func() *font {
+		return &font{
+			maxp: &maxpTable{numGlyphs: 5},
+			hhea: &hheaTable{numberOfHMetrics: 3},
+			trec: &tableRecords{trMap: map[string]*tableRecord{"hmtx": {offset: 0, length: 16}}},
+		}
+	}
+
+	// 12 bytes of hMetrics, then one of the two lsb entries, then EOF.
+	table, err := newFont().parseHmtx(newByteReader(bytes.NewReader(bytes.Repeat([]byte{0xAB}, 14))))
+	require.NoError(t, err)
+	require.Len(t, table.leftSideBearings, 2)
+	assert.Equal(t, int16(-21589), table.leftSideBearings[0], "read from the file")
+	assert.Equal(t, int16(0), table.leftSideBearings[1], "padded past the end of the file")
+
+	_, err = newFont().parseHmtx(newByteReader(bytes.NewReader(make([]byte, 10))))
+	assertTruncatedRead(t, err)
 }

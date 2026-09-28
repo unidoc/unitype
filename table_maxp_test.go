@@ -6,6 +6,7 @@
 package unitype
 
 import (
+	"bytes"
 	"os"
 	"testing"
 
@@ -56,5 +57,24 @@ func TestMaxpTable(t *testing.T) {
 			require.NotNil(t, fnt.maxp)
 			require.Equal(t, int(tcase.numGlyphs), int(fnt.maxp.numGlyphs))
 		})
+	}
+}
+
+// TestParseMaxp_RejectsShortTable asserts a maxp record shorter than its
+// fields fails rather than reading the bytes after it, including one too
+// short for numGlyphs.
+func TestParseMaxp_RejectsShortTable(t *testing.T) {
+	// version=1.0 (0x00010000, big-endian) + numGlyphs=5, then sentinel bytes.
+	data := append([]byte{0x00, 0x01, 0x00, 0x00, 0x00, 0x05}, bytes.Repeat([]byte{0xFF}, 40)...)
+	for _, length := range []uint32{4, 6} {
+		f := &font{
+			trec: &tableRecords{
+				trMap: map[string]*tableRecord{
+					"maxp": {offset: 0, length: length},
+				},
+			},
+		}
+		_, err := f.parseMaxp(newByteReader(bytes.NewReader(data)))
+		assertTruncatedRead(t, err)
 	}
 }
