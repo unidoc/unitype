@@ -258,3 +258,11 @@ func TestParseCmapFormat12_ManyGroups(t *testing.T) {
 	require.NoError(t, err)
 	assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(256<<20), "expansion must stay bounded")
 }
+
+// TestParseCmapFormat12_StartGlyphIDRange asserts a startGlyphID beyond
+// numGlyphs is rejected rather than truncated to a valid glyph index.
+func TestParseCmapFormat12_StartGlyphIDRange(t *testing.T) {
+	f := &font{maxp: &maxpTable{numGlyphs: 10}}
+	_, err := f.parseCmapSubtableFormat12(newByteReader(bytes.NewReader(cmap12Bytes([3]uint32{0x41, 0x41, 0x10001}))), 3, 10)
+	assert.ErrorIs(t, err, errRangeCheck)
+}

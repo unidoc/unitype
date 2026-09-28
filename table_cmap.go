@@ -512,12 +512,11 @@ func (f *font) parseCmapSubtableFormat12(r *byteReader, platformID, encodingID i
 		}
 		prevEnd = int64(end)
 
-		gid := GlyphIndex(group.startGlyphID)
-		if int(gid) >= int(f.maxp.numGlyphs) {
-			logrus.Debugf("gid >= numGlyphs (%d > %d)", gid, f.maxp.numGlyphs)
-			logrus.Debugf("Error: %v", errRangeCheck)
+		if group.startGlyphID >= uint32(f.maxp.numGlyphs) {
+			logrus.Debugf("startGlyphID >= numGlyphs (%d >= %d)", group.startGlyphID, f.maxp.numGlyphs)
 			return nil, errRangeCheck
 		}
+		gid := GlyphIndex(group.startGlyphID)
 		for charcode := start; charcode <= end; charcode++ {
 			if int(gid) >= int(f.maxp.numGlyphs) {
 				break
