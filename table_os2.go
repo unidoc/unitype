@@ -135,7 +135,7 @@ func (f *font) parseOS2Table(r *byteReader) (*os2Table, error) {
 		return nil, nil
 	}
 	if len(buf) < os2LenV0Apple {
-		logrus.Debug("OS/2 table shorter than any defined version, treating as absent")
+		logrus.Warn("OS/2 table shorter than any defined version, treating as absent")
 		return nil, nil
 	}
 	br := newBytesReader(buf)

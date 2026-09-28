@@ -159,6 +159,13 @@ func parseFont(r *byteReader) (*font, error) {
 // numTablesToWrite returns the number of tables in `f`.
 // Calculates based on the number of tables will be written out.
 // NOTE that not all tables that are loaded are written out.
+// writesOS2 reports whether write outputs the OS/2 table: a table with fewer
+// than os2LenV0Microsoft bytes lacks fields every version requires, so it
+// can't be written as a valid table.
+func (f *font) writesOS2() bool {
+	return f.os2 != nil && f.os2.hasTypoWinMetrics()
+}
+
 func (f *font) numTablesToWrite() int {
 	var num int
 
@@ -192,7 +199,7 @@ func (f *font) numTablesToWrite() int {
 	if f.name != nil {
 		num++
 	}
-	if f.os2 != nil {
+	if f.writesOS2() {
 		num++
 	}
 	if f.post != nil {
@@ -375,7 +382,10 @@ func (f *font) write(w *byteWriter) error {
 		}
 
 		// os2.
-		if f.os2 != nil {
+		if f.os2 != nil && !f.writesOS2() {
+			logrus.Warn("OS/2 table lacks the sTypo*/usWin* fields every version requires, omitting it")
+		}
+		if f.writesOS2() {
 			offset = startOffset + bufw.flushedLen
 			err = f.writeOS2(bufw)
 			if err != nil {

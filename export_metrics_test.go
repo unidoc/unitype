@@ -347,6 +347,21 @@ func TestOS2_WrittenVersion(t *testing.T) {
 	}
 }
 
+// TestWrite_OmitsShortOS2 asserts Write omits an OS/2 table that lacks the
+// Typo/Win fields, and the written font parses without one.
+func TestWrite_OmitsShortOS2(t *testing.T) {
+	f, err := ParseFile("./testdata/roboto/Roboto-Regular.ttf")
+	require.NoError(t, err)
+	f.font.os2 = &os2Table{version: 0, length: os2LenV0Apple, panose10: make([]uint8, 10)}
+
+	var buf bytes.Buffer
+	require.NoError(t, f.Write(&buf))
+	out, err := Parse(bytes.NewReader(buf.Bytes()))
+	require.NoError(t, err)
+	assert.False(t, out.OS2Metrics().Present)
+	assert.Equal(t, f.NumGlyphs(), out.NumGlyphs())
+}
+
 // TestGlyphAdvance_TrailingInheritance asserts gids past numberOfHMetrics
 // inherit the last advance (FreeSans.ttf: 3722 hMetrics, 3726 glyphs).
 func TestGlyphAdvance_TrailingInheritance(t *testing.T) {
